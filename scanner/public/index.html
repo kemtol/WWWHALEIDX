@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whale Scanner — Running Trade</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#c9d1d9;
+    --muted:#8b949e; --up:#3fb950; --down:#f85149; --accent:#58a6ff; --warn:#d29922;
+  }
+  *{box-sizing:border-box}
+
+  /* Scrollbar gelap tanpa tombol panah. Chrome mengabaikan ::-webkit-scrollbar
+     kalau scrollbar-width/color ikut diset, jadi properti standar hanya dipakai
+     sebagai cadangan di mesin yang tidak punya pseudo-element webkit. */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:#0d1117}
+  ::-webkit-scrollbar-thumb{background:#2d333b;border:2px solid #0d1117}
+  ::-webkit-scrollbar-thumb:hover{background:#484f58}
+  ::-webkit-scrollbar-corner{background:#0d1117}
+  ::-webkit-scrollbar-button{display:none;width:0;height:0}
+  @supports not selector(::-webkit-scrollbar){
+    *{scrollbar-width:thin;scrollbar-color:#2d333b #0d1117}
+  }
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",sans-serif}
+  /* statistik ringkas di judul kolom, menggantikan header bar yang dihapus */
+  .stat{display:inline-flex;align-items:baseline;gap:.3rem;text-transform:none;letter-spacing:0}
+  .stat b{font-size:.85rem;color:var(--text);font-variant-numeric:tabular-nums}
+  .stat span{font-size:.7rem;color:var(--muted)}
+  .dot{width:9px;height:9px;border-radius:0;display:inline-block;margin-right:.4rem;background:var(--down)}
+  .dot.on{background:var(--up)}
+  button{background:#21262d;color:var(--text);border:1px solid var(--line);
+         border-radius:0;padding:.4rem .85rem;cursor:pointer;font-size:.85rem}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#0d1117;font-weight:600}
+  #phase{margin-left:auto;color:var(--muted);font-size:.85rem}
+  .wrap{padding:0}
+
+  /* tiga kolom: filter | livetrade | tekanan.
+     gap 1px berlatar --line dipakai sebagai garis pemisah, jadi tidak perlu border. */
+  .grid3{display:grid;grid-template-columns:290px minmax(0,1fr) 420px;
+         gap:1px;background:var(--line);transition:grid-template-columns .15s ease}
+  /* filter diciutkan jadi rail sempit — burger tetap terlihat supaya bisa dibuka lagi */
+  body.fcol .grid3{grid-template-columns:34px minmax(0,1fr) 420px}
+  body.fcol #col-filter .colbody,
+  body.fcol #col-filter .chtitle{display:none}
+  body.fcol #col-filter .colhead{padding:0;justify-content:center}
+  .burger{background:none;border:none;color:var(--muted);cursor:pointer;
+          padding:.05rem .35rem;font-size:.95rem;line-height:1.2}
+  .burger:hover{color:var(--text);border:none}
+  /* judul kolom di luar area scroll, supaya header tabel bisa sticky tanpa bertabrakan */
+  .grid3>section{background:var(--bg);min-width:0;display:flex;flex-direction:column;
+                 height:100vh;overflow:hidden}
+  /* tinggi dikunci supaya ketiga judul kolom rata, apa pun isinya */
+  .colhead{background:var(--panel);height:34px;flex:0 0 34px;padding:0 .8rem;
+           font-weight:600;font-size:.78rem;
+           text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+           border-bottom:1px solid var(--line);display:flex;gap:.5rem;align-items:center}
+  /* semua tombol di judul kolom seragam dan cukup pendek agar muat di 34px */
+  .colhead button{padding:.05rem .7rem;font-size:.76rem;line-height:1.5}
+  .colbody{overflow:auto;flex:1;min-height:0}
+  @media (max-width:1200px){
+    .grid3{grid-template-columns:1fr}
+    .grid3>section{height:auto;max-height:80vh}
+  }
+
+  /* dua tampilan penuh: login QR dan dashboard. Kelas `logged` di body yang menentukan. */
+  #login-view{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+  #app-view{display:none}
+  body.logged #login-view{display:none}
+  body.logged #app-view{display:block}
+
+  /* login */
+  #login{display:flex;gap:2.5rem;align-items:center;flex-wrap:wrap;justify-content:center;
+         background:var(--panel);border:1px solid var(--line);border-radius:0;
+         padding:2rem}
+  #login ol{margin:.4rem 0 0;padding-left:1.2rem;color:var(--muted);line-height:1.9}
+  #login h2{margin:0;font-size:1.15rem}
+  #login b{color:var(--text)}
+  .qrbox{width:320px;height:320px;display:flex;align-items:center;justify-content:center;
+         background:#fff;border-radius:0;padding:10px}
+  .qrbox svg{width:100%;height:100%;display:block}
+  .qrbox.placeholder{background:#0d1117;border:1px dashed var(--line);color:var(--muted);
+                     text-align:center;font-size:.85rem;padding:1.5rem}
+  #countdown{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600}
+
+  /* filter */
+  .fbody{padding:.8rem;display:grid;grid-template-columns:1fr;gap:.8rem}
+  fieldset{border:1px solid var(--line);border-radius:0;padding:.7rem .9rem;margin:0}
+  legend{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:0 .3rem}
+  label{display:block;font-size:.78rem;color:var(--muted);margin-top:.5rem}
+  label:first-child{margin-top:0}
+  input[type=text],input[type=number]{width:100%;background:#0d1117;color:var(--text);
+    border:1px solid var(--line);border-radius:0;padding:.32rem .5rem;font-size:.85rem}
+  .chk{display:inline-flex;align-items:center;gap:.3rem;margin-right:.7rem;color:var(--text);font-size:.82rem}
+  .row{display:flex;gap:.5rem}
+  .bar{display:flex;gap:.6rem;align-items:center;padding:0 .8rem .9rem;flex-wrap:wrap}
+  .hint{font-size:.72rem;color:var(--muted)}
+
+  /* tabel */
+  /* table-layout:fixed = lebar kolom tidak ikut berubah tiap baris baru masuk,
+     jadi tabel tidak bergeser-geser saat data mengalir. */
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;
+        table-layout:fixed}
+  th{position:sticky;top:0;background:var(--panel);text-align:left;
+     font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+     padding:.5rem .6rem;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:.35rem .6rem;border-bottom:1px solid #1c2128;white-space:nowrap;
+     overflow:hidden;text-overflow:ellipsis}
+  /* judul kolom harus ikut rata kanan, kalau tidak header dan angkanya berseberangan */
+  th.num,td.num{text-align:right}
+  .sym{font-weight:600}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .badge{display:inline-block;padding:.05rem .4rem;border-radius:0;font-size:.7rem;
+         border:1px solid var(--line);color:var(--muted)}
+  .badge.ng{border-color:var(--warn);color:var(--warn)}
+  .badge.burst{border-color:var(--warn);background:rgba(210,153,34,.15);color:var(--warn);font-weight:600}
+  .raw{font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:#6e7681}
+  .flat{color:#6e7681}
+  /* panel tekanan */
+  .pbody{padding:.8rem}
+  #p-table{table-layout:fixed}
+  #p-table td{padding:.32rem .4rem}
+  #p-table th{padding:.45rem .4rem}
+  .pbar{display:flex;height:9px;border-radius:0;overflow:hidden;background:#21262d}
+  .pbar i{display:block;height:100%}
+  .pbar i.h{background:var(--up)} .pbar i.k{background:var(--down)}
+  .verdict{font-size:.75rem;font-weight:600}
+  .v-buy{color:var(--up)} .v-sell{color:var(--down)} .v-flat{color:var(--muted)}
+  button[data-win]{padding:.05rem .75rem}
+  .empty{padding:2.5rem 1rem;text-align:center;color:var(--muted)}
+  .scroll{background:var(--bg)}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+<div id="login-view">
+  <section id="login">
+    <div>
+      <h2>Login dengan QR</h2>
+      <ol>
+        <li>Buka aplikasi <b>IPOT</b> di HP</li>
+        <li>Ketuk <b>Member Area</b></li>
+        <li>Ketuk <b>Security</b> → <b>Login to IPOT Web</b></li>
+        <li>Scan QR di samping</li>
+      </ol>
+      <p style="margin:1.2rem 0 0">
+        <button class="primary" id="btn-login">Tampilkan QR</button>
+        <span id="countdown" style="margin-left:.8rem"></span>
+      </p>
+    </div>
+    <div class="qrbox placeholder" id="qrbox">
+      Klik “Tampilkan QR”.<br>QR berlaku 60 detik,<br>jadi siapkan HP dulu.
+    </div>
+  </section>
+</div>
+
+<div id="app-view">
+  <div class="wrap">
+  <div class="grid3">
+
+  <!-- ── KIRI: filter ─────────────────────────────────────────── -->
+  <section id="col-filter">
+    <div class="colhead">
+      <button class="burger" id="burger" title="Sembunyikan filter">&#9776;</button>
+      <span class="chtitle">Filter transaksi</span>
+    </div>
+    <div class="colbody">
+    <div class="fbody">
+      <fieldset>
+        <legend>Emiten</legend>
+        <label>Watchlist (pisahkan koma, kosong = semua)</label>
+        <input type="text" id="f-watchlist" placeholder="BBCA, BBRI, TLKM">
+        <div class="row" style="margin-top:.5rem">
+          <button id="p-lq45">LQ45</button>
+          <button id="p-clear">Kosongkan</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Ukuran transaksi</legend>
+        <label>Minimal nilai (Rp)</label>
+        <input type="number" id="f-minvalue" step="10000000">
+        <label>Minimal lot</label>
+        <input type="number" id="f-minlot">
+      </fieldset>
+
+      <fieldset>
+        <legend>Papan</legend>
+        <span class="chk"><input type="checkbox" id="b-RG" checked> RG</span>
+        <span class="chk"><input type="checkbox" id="b-NG" checked> NG</span>
+        <span class="chk"><input type="checkbox" id="b-TN" checked> TN</span>
+        <p class="hint" style="margin:.6rem 0 0">NG = negosiasi, jarang tapi biasanya blok besar.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Harga &amp; perubahan</legend>
+        <label>Harga min / maks</label>
+        <div class="row"><input type="number" id="f-minprice" placeholder="min">
+                         <input type="number" id="f-maxprice" placeholder="maks"></div>
+        <label>% perubahan min / maks</label>
+        <div class="row"><input type="number" id="f-minpct" step="0.5" placeholder="min">
+                         <input type="number" id="f-maxpct" step="0.5" placeholder="maks"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Burst</legend>
+        <span class="chk"><input type="checkbox" id="f-burst-on" checked> aktif</span>
+        <label>Minimal transaksi</label>
+        <input type="number" id="f-burst-trades">
+        <label>Dalam berapa detik</label>
+        <input type="number" id="f-burst-window">
+        <p class="hint" style="margin:.5rem 0 0">Dihitung dari semua transaksi emiten, bukan hanya yang lolos filter.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Jam</legend>
+        <label>Dari (HHMM)</label>
+        <input type="text" id="f-timefrom" placeholder="0900">
+        <label>Sampai (HHMM)</label>
+        <input type="text" id="f-timeto" placeholder="1600">
+      </fieldset>
+    </div>
+    <div class="bar">
+      <button class="primary" id="f-apply">Terapkan</button>
+      <span class="chk"><input type="checkbox" id="f-enabled" checked> filter aktif</span>
+    </div>
+    <p class="hint" id="f-summary" style="padding:0 .8rem 1rem"></p>
+    </div>
+  </section>
+
+  <!-- ── TENGAH: running trade ────────────────────────────────── -->
+  <section>
+    <div class="colhead">
+      Live Trade
+      <span class="stat"><span class="dot" id="dot"></span><b id="conn">—</b></span>
+      <span class="stat"><b id="s-seen">0</b><span>masuk</span></span>
+      <span class="stat"><b id="s-pass">0</b><span>lolos</span></span>
+      <span class="stat"><b id="s-burst">0</b><span>burst</span></span>
+      <span class="stat"><b id="rate">0</b><span>/detik</span></span>
+      <button id="pause">Pause</button>
+      <span id="phase" style="margin-left:auto"></span>
+      <button id="logout" title="Keluar dan kembali ke layar QR">Logout</button>
+    </div>
+    <div class="colbody">
+      <table>
+        <colgroup>
+          <col style="width:74px"><col style="width:70px"><col style="width:56px">
+          <col style="width:74px"><col style="width:62px"><col style="width:66px">
+          <col style="width:112px"><col style="width:70px"><col style="width:56px"><col>
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Waktu</th><th>Kode</th><th>Papan</th>
+            <th class="num">Harga</th><th class="num">Tick</th><th class="num">Lot</th>
+            <th class="num">Nilai (Rp)</th><th class="num">%</th><th>Burst</th><th>Raw</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="empty">Belum ada data.</div>
+    </div>
+  </section>
+
+  <!-- ── KANAN: tekanan HAKA/HAKI ─────────────────────────────── -->
+  <section>
+    <div class="colhead">
+      Tekanan HAKA / HAKI
+      <span class="row" style="margin-left:auto">
+        <button data-win="60">1m</button>
+        <button data-win="300">5m</button>
+        <button data-win="900">15m</button>
+      </span>
+    </div>
+    <div class="colbody">
+      <div class="pbody">
+        <p class="hint" id="p-window" style="margin:0 0 .6rem">—</p>
+        <table id="p-table">
+          <colgroup>
+            <col style="width:68px"><col style="width:76px"><col>
+            <col style="width:54px"><col style="width:60px"><col style="width:62px">
+          </colgroup>
+          <thead>
+            <tr><th>Kode</th><th class="num">Nilai</th><th>H vs K</th>
+                <th class="num">HAKA%</th><th>Arah</th><th class="num">Bukti</th></tr>
+          </thead>
+          <tbody id="p-rows"></tbody>
+        </table>
+        <div class="empty" id="p-empty" style="padding:1.4rem">Menunggu data yang cukup…</div>
+      </div>
+    </div>
+  </section>
+
+  </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const MAX_ROWS = 200;
+const LQ45 = "ACES,ADRO,AKRA,AMMN,AMRT,ANTM,ARTO,ASII,BBCA,BBNI,BBRI,BBTN,BMRI,BRIS,BRPT,BUKA,CPIN,CTRA,ESSA,EXCL,GGRM,GOTO,HRUM,ICBP,INCO,INDF,INDY,INKP,ISAT,ITMG,JSMR,KLBF,MAPI,MBMA,MDKA,MEDC,PGAS,PGEO,PTBA,SIDO,SMGR,SRTG,TLKM,TOWR,UNTR,UNVR";
+let paused = false, ws = null, expiresAt = 0, recent = [];
+const nf = new Intl.NumberFormat('id-ID');
+
+$('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; };
+$('p-lq45').onclick = () => { $('f-watchlist').value = LQ45; };
+$('p-clear').onclick = () => { $('f-watchlist').value = ''; };
+
+$('btn-login').onclick = () => {
+  ws?.send(JSON.stringify({ cmd: 'login' }));
+  $('btn-login').textContent = 'Meminta QR…';
+  $('qrbox').className = 'qrbox placeholder';
+  $('qrbox').textContent = 'Menyiapkan QR…';
+};
+
+const numOrNull = (id) => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
+const strOrNull = (id) => { const v = $(id).value.trim(); return v === '' ? null : v; };
+
+$('f-apply').onclick = () => {
+  const boards = ['RG','NG','TN'].filter((b) => $('b-'+b).checked);
+  const config = {
+    enabled: $('f-enabled').checked,
+    watchlist: $('f-watchlist').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean),
+    minValue: Number($('f-minvalue').value) || 0,
+    minLot: Number($('f-minlot').value) || 0,
+    boards,
+    minPrice: numOrNull('f-minprice'),
+    maxPrice: numOrNull('f-maxprice'),
+    minChangePct: numOrNull('f-minpct'),
+    maxChangePct: numOrNull('f-maxpct'),
+    timeFrom: strOrNull('f-timefrom'),
+    timeTo: strOrNull('f-timeto'),
+    burst: {
+      enabled: $('f-burst-on').checked,
+      trades: Number($('f-burst-trades').value) || 1,
+      windowSec: Number($('f-burst-window').value) || 1,
+    },
+  };
+  ws?.send(JSON.stringify({ cmd: 'filter', config }));
+  $('rows').innerHTML = '';
+  recent = [];
+};
+
+let lastFilterJson = null;
+/** Isi form hanya kalau filter di server benar-benar berubah. Tanpa penjaga ini,
+ *  snapshot state yang datang saat reconnect akan menghapus ketikan yang belum diterapkan. */
+function fillForm(c) {
+  const json = JSON.stringify(c);
+  if (json === lastFilterJson) return;
+  lastFilterJson = json;
+  $('f-enabled').checked = c.enabled;
+  $('f-watchlist').value = (c.watchlist || []).join(', ');
+  $('f-minvalue').value = c.minValue ?? 0;
+  $('f-minlot').value = c.minLot ?? 0;
+  ['RG','NG','TN'].forEach(b => $('b-'+b).checked = (c.boards||[]).includes(b));
+  $('f-minprice').value = c.minPrice ?? '';
+  $('f-maxprice').value = c.maxPrice ?? '';
+  $('f-minpct').value = c.minChangePct ?? '';
+  $('f-maxpct').value = c.maxChangePct ?? '';
+  $('f-timefrom').value = c.timeFrom ?? '';
+  $('f-timeto').value = c.timeTo ?? '';
+  $('f-burst-on').checked = c.burst?.enabled ?? true;
+  $('f-burst-trades').value = c.burst?.trades ?? 15;
+  $('f-burst-window').value = c.burst?.windowSec ?? 3;
+  $('f-summary').textContent =
+    `≥ Rp ${nf.format(c.minValue||0)} · ${(c.watchlist||[]).length || 'semua'} emiten · burst ${c.burst?.trades}/${c.burst?.windowSec}s`;
+}
+
+/** Pindah antara layar QR dan dashboard. */
+function setLogged(on) {
+  document.body.classList.toggle('logged', on);
+  if (on) {
+    $('empty').textContent = 'Login berhasil. Menunggu transaksi yang lolos filter…';
+  } else {
+    expiresAt = 0;
+    $('btn-login').textContent = 'Tampilkan QR';
+    $('qrbox').className = 'qrbox placeholder';
+    $('qrbox').innerHTML = 'Klik “Tampilkan QR”.<br>QR berlaku 60 detik,<br>jadi siapkan HP dulu.';
+  }
+}
+
+$('logout').onclick = () => {
+  ws?.send(JSON.stringify({ cmd: 'logout' }));
+  $('rows').innerHTML = '';
+  $('p-rows').innerHTML = '';
+  recent = [];
+};
+
+function showQr(svg, exp) {
+  expiresAt = exp || 0;
+  if (svg) {
+    $('qrbox').className = 'qrbox';
+    $('qrbox').innerHTML = svg;
+    $('btn-login').textContent = 'Minta QR baru';
+  } else {
+    $('qrbox').className = 'qrbox placeholder';
+    $('qrbox').textContent = 'QR kedaluwarsa. Klik “Minta QR baru”.';
+  }
+}
+
+setInterval(() => {
+  if (!expiresAt) { $('countdown').textContent = ''; return; }
+  const s = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
+  $('countdown').textContent = s > 0 ? `berlaku ${s} detik lagi` : 'kedaluwarsa';
+  if (s === 0) expiresAt = 0;
+}, 500);
+
+setInterval(() => {
+  const cutoff = Date.now() - 5000;
+  recent = recent.filter((t) => t > cutoff);
+  $('rate').textContent = (recent.length / 5).toFixed(1);
+}, 1000);
+
+function addTrade(t, burst, count) {
+  recent.push(Date.now());
+  if (paused) return;
+  $('empty').style.display = 'none';
+  const tr = document.createElement('tr');
+  const cls = t.changePct > 0 ? 'up' : t.changePct < 0 ? 'down' : '';
+  const hhmmss = (t.time || '').replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3');
+  // Tick = fakta dari feed (selisih vs transaksi sebelumnya), bukan tafsiran.
+  const tickCls = t.tick > 0 ? 'up' : t.tick < 0 ? 'down' : 'flat';
+  const tickTxt = t.tick > 0 ? `↑ ${nf.format(t.tick)}`
+                : t.tick < 0 ? `↓ ${nf.format(Math.abs(t.tick))}` : '=';
+  tr.innerHTML = `
+    <td>${hhmmss}</td>
+    <td class="sym">${t.symbol}</td>
+    <td><span class="badge ${t.board === 'NG' ? 'ng' : ''}">${t.board}</span></td>
+    <td class="num">${nf.format(t.price)}</td>
+    <td class="num ${tickCls}">${tickTxt}</td>
+    <td class="num">${nf.format(t.lot)}</td>
+    <td class="num">${nf.format(Math.round(t.value))}</td>
+    <td class="num ${cls}">${t.changePct >= 0 ? '+' : ''}${t.changePct.toFixed(2)}</td>
+    <td>${burst ? `<span class="badge burst">${count}×</span>` : ''}</td>
+    <td class="raw" title="${t.raw.replace(/"/g, '&quot;')}">${t.raw}</td>`;
+  const rows = $('rows');
+  rows.prepend(tr);
+  while (rows.children.length > MAX_ROWS) rows.lastElementChild.remove();
+}
+
+// Kolom filter bisa diciutkan agar dua kolom lain lebih lega. Pilihannya diingat.
+const FCOL_KEY = 'whale.filterCollapsed';
+function setFilterCollapsed(c) {
+  document.body.classList.toggle('fcol', c);
+  $('burger').title = c ? 'Tampilkan filter' : 'Sembunyikan filter';
+  try { localStorage.setItem(FCOL_KEY, c ? '1' : '0'); } catch {}
+}
+$('burger').onclick = () => setFilterCollapsed(!document.body.classList.contains('fcol'));
+try { setFilterCollapsed(localStorage.getItem(FCOL_KEY) === '1'); } catch { setFilterCollapsed(false); }
+
+document.querySelectorAll('[data-win]').forEach((b) => {
+  b.onclick = () => ws?.send(JSON.stringify({ cmd: 'pressureWindow', sec: Number(b.dataset.win) }));
+});
+
+/** Rupiah ringkas — kolom kanan sempit, angka penuh tidak muat. */
+function rpShort(v) {
+  if (v >= 1e12) return (v / 1e12).toFixed(2) + ' T';
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + ' M';
+  if (v >= 1e6) return (v / 1e6).toFixed(0) + ' jt';
+  return nf.format(Math.round(v));
+}
+
+function renderPressure(list, windowSec) {
+  if (windowSec) {
+    $('p-window').textContent =
+      `${list.length} emiten · hanya transaksi yang menggerakkan harga · jendela ${Math.round(windowSec / 60)} menit`;
+  }
+  if (!list.length) { $('p-empty').style.display = ''; $('p-rows').innerHTML = ''; return; }
+  $('p-empty').style.display = 'none';
+  $('p-rows').innerHTML = list.map((p) => {
+    const haka = p.hakaPct;
+    const v = haka >= 60 ? ['v-buy', 'BELI'] : haka >= 52 ? ['v-buy', 'beli']
+            : haka <= 40 ? ['v-sell', 'JUAL'] : haka <= 48 ? ['v-sell', 'jual']
+            : ['v-flat', 'imbang'];
+    return `<tr title="${p.trades} transaksi · Rp ${nf.format(Math.round(p.value))} · arah ditentukan oleh ${p.evidence} transaksi yang menggerakkan harga">
+      <td class="sym">${p.symbol}</td>
+      <td class="num">${rpShort(p.value)}</td>
+      <td><span class="pbar"><i class="h" style="width:${haka.toFixed(1)}%"></i><i class="k" style="width:${(100 - haka).toFixed(1)}%"></i></span></td>
+      <td class="num">${haka.toFixed(1)}</td>
+      <td class="verdict ${v[0]}">${v[1]}</td>
+      <td class="num flat">${nf.format(p.evidence)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function connect() {
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => { $('conn').textContent = 'tersambung'; $('dot').classList.add('on'); };
+  ws.onclose = () => {
+    $('conn').textContent = 'terputus'; $('dot').classList.remove('on');
+    setTimeout(connect, 2000);
+  };
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'trade') return addTrade(m.trade, m.burst, m.count);
+    if (m.type !== 'state') return;
+    if (m.phase) $('phase').textContent = m.phase;
+    if (m.filter) fillForm(m.filter);
+    if (m.pressure) renderPressure(m.pressure, m.pressureWindowSec);
+    if (m.stats) {
+      $('s-seen').textContent = nf.format(m.stats.seen);
+      $('s-pass').textContent = nf.format(m.stats.passed);
+      $('s-burst').textContent = nf.format(m.stats.bursts);
+    }
+    // setState hanya menyiarkan perubahan, jadi cek keberadaan field-nya
+    if ('loggedIn' in m) setLogged(!!m.loggedIn);
+    if ('qrSvg' in m) showQr(m.qrSvg, m.qrExpiresAt);
+  };
+}
+connect();
+</script>
+</body>
+</html>
