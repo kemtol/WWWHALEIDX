@@ -27,7 +27,60 @@ export interface Trade {
   /** Selisih harga terhadap transaksi SEBELUMNYA di emiten yang sama (field [16]).
    *  Diverifikasi 99,9% pada data rapat — dasar penentuan arah agresor (tick rule). */
   tick: number;
+  /** Harga rata-rata tertimbang volume (VWAP), kumulatif sejak pembukaan — field [17],
+   *  dibulatkan ke rupiah oleh server. Datang gratis dari feed, tidak perlu dihitung
+   *  sendiri, dan sudah benar sejak transaksi pertama yang kita terima walau scanner
+   *  baru login tengah hari.
+   *
+   *  PENTING: dihitung per EMITEN+PAPAN, bukan per emiten. GOTO pernah tercatat VWAP 33
+   *  di papan NG sementara di RG 50. Karena NG/TN hanya berisi segelintir transaksi,
+   *  VWAP di papan itu sering sama dengan harga transaksinya sendiri — jadi `vsAvgPct`
+   *  hanya bermakna untuk RG. Lihat README untuk cara verifikasinya. */
+  avg: number;
+  /** Harga terhadap VWAP papan yang sama, dalam persen. Positif = transaksi ini
+   *  terjadi di atas harga rata-rata hari ini. 0 kalau VWAP tidak tersedia. */
+  vsAvgPct: number;
+  /** Sisi agresor: `'buy'` = pembeli mengambil offer (HAKA), `'sell'` = penjual
+   *  mengambil bid (HAKI), `null` = feed tidak menyebutkannya untuk transaksi ini.
+   *
+   *  Bukan tebakan tick rule — ini dibaca dari SLOT MANA di antara [13]/[14] yang
+   *  berisi angka (lihat parseAggressor). Terverifikasi pada 45.110 transaksi:
+   *  99,7% konsisten dengan pasangan harga bid/offer, dan 98,6% sepakat dengan tick
+   *  rule pada transaksi yang bisa dinilai keduanya.
+   *
+   *  Cakupan: 100% transaksi RG selama sesi berjalan (dibanding 18,6% kalau hanya
+   *  mengandalkan tick). `null` praktis hanya muncul pada transaksi lelang penutupan
+   *  setelah 16:00, dan itu benar — lelang menyilangkan order pada satu harga, jadi
+   *  memang tidak ada yang berperan sebagai agresor. */
+  aggressor: 'buy' | 'sell' | null;
   raw: string;
+}
+
+/**
+ * Sisi agresor dari posisi angka di [13]/[14].
+ *
+ * Feed selalu mengisi paling banyak SATU dari dua slot itu dengan angka ~7 digit;
+ * slot lainnya "00". Yang menentukan arah adalah slot mana yang dipakai:
+ *
+ *   [14] berisi angka  → transaksi di harga OFFER → pembeli yang mengambil (HAKA)
+ *   [13] berisi angka  → transaksi di harga BID   → penjual yang mengambil (HAKI)
+ *   dua-duanya "00"    → tidak diketahui (36% transaksi)
+ *
+ * Dasar buktinya: dalam satu emiten, harga pada baris ber-slot [14] konsisten lebih
+ * TINGGI daripada baris ber-slot [13] — persis pola bid vs offer. Diuji per transaksi
+ * terhadap harga slot seberangnya yang terakhir: 23.113 konsisten vs 66 melanggar.
+ *
+ * Angka di dalam slotnya sendiri belum jelas artinya (kemungkinan nomor order: naik
+ * terus, dan sering berulang sama saat satu order agresor memakan beberapa lawan).
+ * Yang dipakai di sini hanya POSISI-nya, bukan nilainya.
+ */
+export function parseAggressor(p: string[]): 'buy' | 'sell' | null {
+  const filled = (s: string | undefined) => !!s && s !== '00' && s !== '' && Number.isFinite(Number(s));
+  const bid = filled(p[13]);
+  const offer = filled(p[14]);
+  if (offer && !bid) return 'buy';
+  if (bid && !offer) return 'sell';
+  return null;   // dua-duanya kosong, atau dua-duanya terisi (belum pernah terlihat)
 }
 
 export interface QrInfo {
@@ -259,10 +312,19 @@ export class IpotClient extends EventEmitter<Events> {
     this.lastMessageAt = Date.now();
 
     if (text === '#1') { this.ws?.send('#2'); return; }
-    this.log.write('DOWN', text);
 
     let msg: any;
-    try { msg = JSON.parse(text); } catch { return this.emit('unknown', text); }
+    try { msg = JSON.parse(text); }
+    catch { this.log.write('DOWN', text); return this.emit('unknown', text); }
+
+    // Frame LT sengaja TIDAK masuk frames.jsonl: jumlahnya ratusan ribu per hari,
+    // menenggelamkan frame protokol lain sampai file memotong diri sendiri di 20 MB
+    // (hari ini isinya 99,9% LT — persis masalah yang mau dihindari). Payload LT
+    // diarsipkan utuh per hari di logs/lt/ lewat archive.ts, jadi tidak ada yang
+    // hilang. Yang GAGAL di-parse tetap dicatat di bawah — justru itu yang menarik.
+    const isLt = (msg.event === 'stream' || msg.event === '#publish') &&
+                 (msg?.data?.rtype ?? msg?.rtype) === 'LT';
+    if (!isLt) this.log.write('DOWN', text);
 
     // JWT sesi — disimpan supaya reconnect tidak perlu scan QR lagi.
     if (msg.event === '#setAuthToken') {
@@ -300,6 +362,7 @@ export class IpotClient extends EventEmitter<Events> {
           this.resubscribes = 0;
           return this.emit('trade', trade);
         }
+        this.log.write('DOWN', text);
         return this.emit('status', `frame LT gagal di-parse: ${payload.slice(0, 120)}`);
       }
       return this.emit('unknown', msg);
@@ -345,8 +408,13 @@ export class IpotClient extends EventEmitter<Events> {
  *   [1] jam HHMMSS      [3] emiten        [4] papan RG/NG/TN   [5] nomor urut
  *   [6] harga           [7] lot           [12] harga penutupan sebelumnya
  *   [15] perubahan (= [6]-[12], cocok 30941/30941)
+ *   [16] tick (selisih vs transaksi sebelumnya di emiten yang sama)
+ *   [17] VWAP emiten, kumulatif sejak pembukaan
  *   [18] % perubahan (dibulatkan ke bawah, cocok 30941/30941)
- *   [0]=B, [2]=0, [19]=1 selalu konstan; [8]-[11] selalu kosong; [13][14][16][17] belum jelas.
+ *   [0]=B, [2]=0, [19]=1 selalu konstan; [8]-[11] selalu kosong.
+ *   [13]/[14] angka ~7 digit di salah satu slot saja (yang lain "00"). NILAI-nya belum
+ *   jelas, tapi SLOT-nya menandai sisi agresor — [13] bid, [14] offer. Lihat
+ *   parseAggressor. Jangan baca kedua indeks itu sebagai field tetap.
  */
 export function parseTrade(data: string): Trade | null {
   const p = data.split('|');
@@ -361,6 +429,9 @@ export function parseTrade(data: string): Trade | null {
     ? ((price - prevClose) / prevClose) * 100
     : 0;
 
+  const avgRaw = Number(p[17]);
+  const avg = Number.isFinite(avgRaw) && avgRaw > 0 ? avgRaw : 0;
+
   return {
     ts: Date.now(),
     time: p[1] ?? '',
@@ -374,6 +445,9 @@ export function parseTrade(data: string): Trade | null {
     change: Number.isFinite(prevClose) ? price - prevClose : 0,
     changePct,
     tick: Number(p[16]) || 0,
+    avg,
+    vsAvgPct: avg > 0 ? ((price - avg) / avg) * 100 : 0,
+    aggressor: parseAggressor(p),
     raw: data,
   };
 }

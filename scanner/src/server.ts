@@ -21,6 +21,12 @@ export class UiServer {
   private lastState: Record<string, unknown> = { phase: 'starting' };
   /** Perintah dari halaman, mis. tombol "Minta QR" atau perubahan filter. */
   onCommand: (msg: { cmd: string; [k: string]: unknown }) => void = () => {};
+  /** Transaksi terakhir yang lolos filter, dikirim ke tab yang baru dibuka supaya
+   *  tabelnya tidak mulai dari kosong sambil menunggu transaksi berikutnya. */
+  getBacklog: () => unknown[] = () => [];
+  /** Handler `/api/*`. Hasilnya dikirim sebagai JSON; `null` berarti 404.
+   *  Ditaruh di pemanggil supaya server tetap tidak tahu-menahu soal arsip. */
+  onApi: (path: string, q: URLSearchParams) => Promise<unknown> | unknown = () => null;
 
   /** Kalau `tls` diisi, server jalan HTTPS/WSS (dipakai untuk akses via domain lokal
    *  mis. whale.scanner.local). Tanpa `tls`, tetap HTTP biasa seperti sebelumnya. */
@@ -32,6 +38,8 @@ export class UiServer {
     this.wss.on('connection', (ws) => {
       this.clients.add(ws);
       ws.send(JSON.stringify({ type: 'state', ...this.lastState }));
+      const backlog = this.getBacklog();
+      if (backlog.length) ws.send(JSON.stringify({ type: 'backlog', trades: backlog }));
       ws.on('message', (buf) => {
         try {
           const msg = JSON.parse(buf.toString());
@@ -44,11 +52,33 @@ export class UiServer {
   }
 
   private async onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-    const urlPath = (req.url ?? '/').split('?')[0];
+    const [urlPath, qs = ''] = (req.url ?? '/').split('?');
+
+    if (urlPath.startsWith('/api/')) {
+      try {
+        const data = await this.onApi(urlPath, new URLSearchParams(qs));
+        if (data === null || data === undefined) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          return res.end('{"error":"tidak dikenal"}');
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify(data));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({ error: (e as Error).message }));
+      }
+    }
+
     const rel = urlPath === '/' ? 'index.html' : normalize(urlPath).replace(/^(\.\.[/\\])+/, '');
     try {
       const body = await readFile(join(this.publicDir, rel));
-      res.writeHead(200, { 'Content-Type': MIME[extname(rel)] ?? 'application/octet-stream' });
+      res.writeHead(200, {
+        'Content-Type': MIME[extname(rel)] ?? 'application/octet-stream',
+        // Alat lokal: berkasnya dibaca dari disk tiap permintaan, jadi cache tidak
+        // menghemat apa pun — tapi bisa menyajikan halaman lama setelah diedit dan
+        // membuatmu mengejar bug yang sudah diperbaiki.
+        'Cache-Control': 'no-store',
+      });
       res.end(body);
     } catch {
       res.writeHead(404, { 'Content-Type': 'text/plain' });

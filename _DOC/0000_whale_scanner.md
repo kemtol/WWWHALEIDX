@@ -34,11 +34,18 @@ ditengok kembali.
 ```
 IPOT WebSocket (socketcluster) ──> scanner/src/ipot.ts   (koneksi, login QR, parse LT)
                                           │
-                                    scanner/src/filters.ts (filter + burst + HAKA/HAKI)
+                          ┌───────────────┴───────────────┐
+                          │                               │
+              scanner/src/filters.ts          scanner/src/archive.ts
+              (filter + burst + HAKA/HAKI)     (arsip harian logs/lt/)
+                          │                               │
+                          │                    scanner/src/history.ts
+                          │                    (query rentang + ringkasan)
+                          └───────────────┬───────────────┘
                                           │
-                                    scanner/src/server.ts  (broadcast ke browser)
+                                    scanner/src/server.ts  (broadcast + /api/*)
                                           │
-                                    scanner/public/index.html (halaman login → dashboard)
+                                    scanner/public/index.html (login → dashboard → riwayat)
 ```
 
 Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
@@ -51,23 +58,38 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
 - **Live trade** — mengalir ke tabel begitu login berhasil, halaman otomatis pindah
   dari layar QR ke dashboard.
 - **Filter transaksi** — emiten (watchlist), nilai minimum, lot minimum, papan
-  (RG/NG/TN), rentang harga, rentang % perubahan, jam, dan **burst** (N transaksi
-  dalam T detik, jendela bergulir per emiten).
-- **Tekanan HAKA/HAKI** — dihitung dari tick rule (uptick = agresor beli, downtick =
-  agresor jual) pada feed LT saja, tanpa OB2. Hanya transaksi ber-bukti (`tick != 0`)
-  yang dihitung; tidak menebak arah transaksi flat-tick, karena terbukti membalik
-  kesimpulan pada 28% emiten kalau ditebak lewat pewarisan arah sebelumnya.
+  (RG/NG/TN), rentang harga, rentang % perubahan, rentang % terhadap VWAP, jam, dan
+  **burst** (N transaksi dalam T detik, jendela bergulir per emiten).
+- **Sisi agresor per transaksi** — HAKA/HAKI dibaca langsung dari feed (posisi angka di
+  field `[13]`/`[14]`), bukan ditebak. Cakupan 100% transaksi RG selama sesi berjalan;
+  kosong hanya di lelang penutupan, di mana memang tidak ada agresor.
+  Lihat `scanner/README.md`.
+- **Tekanan HAKA/HAKI** — panel agregat per emiten, ditimbang nilai, dihitung dari sisi
+  agresor feed (cakupan 100% nilai saat sesi berjalan, sebelumnya 16,8% dengan tick rule).
+  Transaksi yang
+  sisinya tidak disebutkan feed tetap **tidak ditebak** arahnya — prinsip lama yang tidak
+  berubah, karena menebak lewat pewarisan arah terbukti membalik kesimpulan pada 28% emiten.
+- **Peringatan belum login** — bursa buka tapi scanner tidak login = data hilang diam-diam.
+  Sekarang ada notifikasi desktop, peringatan journal berkala, dan banner di layar QR
+  berisi hitungan menit yang tidak terekam.
+- **Arsip harian & riwayat** — setiap transaksi disimpan mentah per hari (~25 MB/hari
+  bursa), bisa dilihat mundur per rentang jam beserta peringkat emiten teramai.
 - **Logout** — memutus sesi di server (bukan cuma sembunyikan tampilan), kembali ke
   layar QR.
 
 ## 5. Yang sengaja belum dikerjakan
 
 - Sesi persisten lintas restart — kodenya sudah ada tapi IPOT menolak token lama
-  (`#removeAuthToken`), jadi tiap restart tetap scan ulang.
+  (`#removeAuthToken`), jadi tiap restart tetap scan ulang. Sudah terbukti memakan korban:
+  13 Agu 2026, 1,5 jam data sesi 1 hilang karena tidak ada yang scan QR setelah restart.
+  Peringatannya kini ada, tapi akar masalahnya belum hilang.
+- Arti nilai di dalam slot `[13]`/`[14]` (kemungkinan nomor order) — butuh arsip sehari
+  penuh, jalankan `scanner/tools/analyze-lt.ts`.
 - Baseline relatif per emiten (deteksi anomali yang menyesuaikan diri terhadap
   keramaian normal tiap saham, bukan ambang absolut).
-- OB2 (orderbook) untuk aggressor asli — per simbol, jadi tidak scalable untuk
-  memindai seluruh ~686 emiten sekaligus. HAKA/HAKI saat ini tetap tebakan tick rule.
+- OB2 (orderbook) untuk **spread** dan **offer wall** — per simbol, jadi tidak scalable
+  untuk memindai seluruh ~686 emiten sekaligus. Untuk sisi agresor OB2 tidak lagi
+  dibutuhkan.
 
 ## 6. Referensi
 

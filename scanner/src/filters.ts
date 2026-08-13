@@ -13,6 +13,12 @@ export interface FilterConfig {
   maxChangePct: number | null;
   minPrice: number | null;
   maxPrice: number | null;
+  /** Harga terhadap VWAP, dalam persen. Memisahkan transaksi yang terjadi di atas
+   *  harga rata-rata hari ini dari yang di bawah — tanda pembeli mau membayar premium,
+   *  atau penjual melepas di bawah rata-rata. Hanya bermakna di papan RG; VWAP dari
+   *  feed dihitung per papan, dan NG/TN terlalu sedikit transaksi (lihat Trade.avg). */
+  minVsAvgPct: number | null;
+  maxVsAvgPct: number | null;
   timeFrom: string | null; // "HHMM"
   timeTo: string | null;
   burst: {
@@ -26,10 +32,20 @@ export interface FilterConfig {
 
 /** Tekanan agresor satu emiten dalam jendela berjalan.
  *
- *  hakaPct dihitung HANYA dari transaksi yang benar-benar menggerakkan harga
- *  (tick != 0). Transaksi di harga yang sama sengaja tidak diikutkan: arahnya
- *  tidak dapat diketahui, dan menebaknya lewat pewarisan terbukti membalik
- *  kesimpulan pada 28% emiten. Cakupannya jadi ~17% nilai, tapi tanpa asumsi. */
+ *  hakaPct dihitung dari SISI AGRESOR YANG DISEBUTKAN FEED (posisi angka di field
+ *  [13]/[14] — lihat parseAggressor di ipot.ts), bukan lagi ditebak dari tick rule.
+ *  Transaksi yang sisinya tidak disebutkan feed tetap tidak ditebak arahnya; ia
+ *  dihitung untuk ukuran keramaian saja.
+ *
+ *  Sebelumnya panel ini memakai tick rule, yang hanya bisa menilai 18,6% transaksi RG
+ *  selama sesi berjalan (16,8% nilai). Sisi agresor dari feed mencakup 100% dan sepakat
+ *  98,6% dengan tick rule di tempat keduanya bisa dinilai — jadi ini bukan penggantian
+ *  asumsi dengan asumsi lain, tapi data yang sama tanpa lubang. Tick rule tidak lagi
+ *  dipakai di sini: setiap transaksi ber-tick juga punya sisi agresor, jadi ia tidak
+ *  menambah apa pun.
+ *
+ *  Yang tetap kosong hanyalah transaksi lelang penutupan (setelah 16:00), dan di sana
+ *  tick rule pun kosong — di lelang tidak ada agresor untuk ditemukan. */
 export interface Pressure {
   symbol: string;
   trades: number;     // seluruh transaksi dalam jendela (untuk mengukur keramaian)
@@ -37,7 +53,7 @@ export interface Pressure {
   hakaValue: number;
   hakiValue: number;
   hakaPct: number;    // 0..100, ditimbang NILAI (bukan jumlah transaksi)
-  /** Jumlah transaksi yang menggerakkan harga — dasar hakaPct, sekaligus ukuran sampel. */
+  /** Jumlah transaksi yang sisinya disebutkan feed — dasar hakaPct, sekaligus ukuran sampel. */
   evidence: number;
 }
 
@@ -53,6 +69,8 @@ export const DEFAULT_FILTER: FilterConfig = {
   maxChangePct: null,
   minPrice: null,
   maxPrice: null,
+  minVsAvgPct: null,
+  maxVsAvgPct: null,
   timeFrom: null,
   timeTo: null,
   burst: { enabled: true, trades: 15, windowSec: 3 },
@@ -75,7 +93,7 @@ export class Scanner {
   /** Emiten yang sedang berstatus burst, beserta kapan terakhir dipicu. */
   private burstUntil = new Map<string, number>();
   /** Jendela tekanan per emiten: [waktu, nilai, arah(-1/0/1)].
-   *  arah 0 = harga tidak bergerak, tidak dipakai menghitung tekanan. */
+   *  arah 0 = feed tidak menyebutkan sisi agresor, tidak dipakai menghitung tekanan. */
   private flow = new Map<string, Array<[number, number, number]>>();
 
   constructor(config: FilterConfig = DEFAULT_FILTER) {
@@ -96,14 +114,15 @@ export class Scanner {
     return arr.length;
   }
 
-  /** Catat transaksi ke jendela tekanan. Arah diambil apa adanya dari tick:
-   *  0 berarti harga tidak bergerak, dan itu TIDAK ditebak — transaksinya tetap
-   *  dicatat untuk ukuran keramaian, tapi tidak ikut menentukan arah tekanan.
-   *  Dihitung dari semua transaksi emiten, bukan hanya yang lolos filter. */
+  /** Catat transaksi ke jendela tekanan. Arah diambil apa adanya dari sisi agresor
+   *  yang disebutkan feed; kalau feed tidak menyebutkannya, arahnya TIDAK ditebak —
+   *  transaksinya tetap dicatat untuk ukuran keramaian, tapi tidak ikut menentukan
+   *  arah tekanan. Dihitung dari semua transaksi emiten, bukan hanya yang lolos filter. */
   private trackFlow(t: Trade) {
     let arr = this.flow.get(t.symbol);
     if (!arr) { arr = []; this.flow.set(t.symbol, arr); }
-    arr.push([t.ts, t.value, Math.sign(t.tick)]);
+    const dir = t.aggressor === 'buy' ? 1 : t.aggressor === 'sell' ? -1 : 0;
+    arr.push([t.ts, t.value, dir]);
 
     const cutoff = t.ts - this.config.pressureWindowSec * 1000;
     let i = 0;
@@ -164,6 +183,14 @@ export class Scanner {
     if (c.maxPrice !== null && t.price > c.maxPrice) return { pass: false, burst, count };
     if (c.minChangePct !== null && t.changePct < c.minChangePct) return { pass: false, burst, count };
     if (c.maxChangePct !== null && t.changePct > c.maxChangePct) return { pass: false, burst, count };
+
+    // Emiten yang belum punya VWAP (avg 0) tidak bisa dinilai — jangan diloloskan
+    // diam-diam sebagai "0%", karena itu membuatnya lolos ambang mana pun di sekitar nol.
+    if (c.minVsAvgPct !== null || c.maxVsAvgPct !== null) {
+      if (t.avg <= 0) return { pass: false, burst, count };
+      if (c.minVsAvgPct !== null && t.vsAvgPct < c.minVsAvgPct) return { pass: false, burst, count };
+      if (c.maxVsAvgPct !== null && t.vsAvgPct > c.maxVsAvgPct) return { pass: false, burst, count };
+    }
 
     if (c.timeFrom || c.timeTo) {
       const hhmm = t.time.slice(0, 4); // HHMMSS -> HHMM

@@ -85,6 +85,9 @@
   .qrbox.placeholder{background:#0d1117;border:1px dashed var(--line);color:var(--muted);
                      text-align:center;font-size:.85rem;padding:1.5rem}
   #countdown{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600}
+  /* Bursa buka tapi belum login: transaksi sedang hilang. Harus tak bisa dilewatkan. */
+  .lost{margin:1rem 0 0;padding:.6rem .8rem;font-size:.85rem;font-weight:600;
+        color:var(--down);border:1px solid var(--down);background:rgba(248,81,73,.12)}
 
   /* filter */
   .fbody{padding:.8rem;display:grid;grid-template-columns:1fr;gap:.8rem}
@@ -130,6 +133,57 @@
   .verdict{font-size:.75rem;font-weight:600}
   .v-buy{color:var(--up)} .v-sell{color:var(--down)} .v-flat{color:var(--muted)}
   button[data-win]{padding:.05rem .75rem}
+  /* bar riwayat */
+  .hbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;font-size:.78rem;
+        padding:.45rem .8rem;background:#12171e;border-bottom:1px solid var(--line)}
+  .hbar label{display:inline-flex;gap:.35rem;align-items:center;margin:0}
+  .hbar input{width:62px}
+  .hbar select{background:#0d1117;color:var(--text);border:1px solid var(--line);
+               border-radius:0;padding:.25rem .4rem;font-size:.8rem}
+  .hbar button{padding:.15rem .7rem}
+  /* ── panel detail per emiten ──────────────────────────────────────────
+     Overlay, bukan kolom keempat: tiga kolom yang ada sudah pas, dan detail
+     ini dipakai saat fokus ke satu emiten — bukan sambil memindai. */
+  #detail{position:fixed;inset:0;background:rgba(1,4,9,.82);z-index:50;
+          display:none;align-items:center;justify-content:center;padding:1.2rem}
+  #detail.on{display:flex}
+  .dbox{background:var(--bg);border:1px solid var(--line);width:min(1180px,100%);
+        max-height:100%;display:flex;flex-direction:column}
+  .dhead{background:var(--panel);border-bottom:1px solid var(--line);padding:.55rem .9rem;
+         display:flex;gap:.9rem;align-items:baseline;flex-wrap:wrap}
+  .dhead h3{margin:0;font-size:1.05rem;letter-spacing:.02em}
+  .dbody{overflow:auto;padding:.9rem;display:grid;gap:.9rem;
+         grid-template-columns:minmax(0,1fr) 340px}
+  @media (max-width:900px){.dbody{grid-template-columns:1fr}}
+  .kv{display:flex;gap:.3rem;align-items:baseline;font-size:.8rem;color:var(--muted)}
+  .kv b{color:var(--text);font-variant-numeric:tabular-nums;font-size:.9rem}
+  .dsec{border:1px solid var(--line);padding:.6rem .7rem}
+  .dsec h4{margin:0 0 .5rem;font-size:.7rem;text-transform:uppercase;
+           letter-spacing:.06em;color:var(--muted);font-weight:600}
+  /* delta kumulatif: garis nol di tengah, batang naik/turun dari situ */
+  .dbars{display:flex;align-items:center;gap:1px;height:120px;position:relative}
+  /* Garis nol harus terlihat: tanpa itu, batang yang semuanya positif tidak bisa
+     dibedakan dari batang yang kebetulan sedang di atas nol. */
+  .dbars::after{content:"";position:absolute;left:0;right:0;top:50%;
+                height:1px;background:var(--line)}
+  .dbars i{flex:1;min-width:1px;display:block;position:relative}
+  .dax{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);
+       font-variant-numeric:tabular-nums;margin-top:.2rem}
+  .dcol{display:flex;flex-direction:column;justify-content:center;height:120px;gap:1px;
+        flex:1;min-width:1px}
+  .dup{background:var(--up);width:100%} .ddn{background:var(--down);width:100%}
+  /* footprint: dua batang berlawanan arah dari tengah, per level harga */
+  .fp{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.76rem}
+  .fp td{padding:.12rem .3rem;border:0;white-space:nowrap}
+  .fp .fprice{text-align:right;width:62px;font-weight:600}
+  .fp .fsell,.fp .fbuy{width:44%}
+  .fp .fsell div{background:var(--down);height:11px;margin-left:auto}
+  .fp .fbuy div{background:var(--up);height:11px}
+  .fp tr.at td.fprice{color:var(--accent)}
+  .fp .fnum{color:var(--muted);width:52px;font-size:.72rem}
+  .sym.clickable{cursor:pointer;text-decoration:underline dotted var(--line);
+                 text-underline-offset:3px}
+  .sym.clickable:hover{color:var(--accent)}
   .empty{padding:2.5rem 1rem;text-align:center;color:var(--muted)}
   .scroll{background:var(--bg)}
   .hidden{display:none !important}
@@ -146,6 +200,7 @@
         <li>Ketuk <b>Security</b> → <b>Login to IPOT Web</b></li>
         <li>Scan QR di samping</li>
       </ol>
+      <p class="lost hidden" id="lost"></p>
       <p style="margin:1.2rem 0 0">
         <button class="primary" id="btn-login">Tampilkan QR</button>
         <span id="countdown" style="margin-left:.8rem"></span>
@@ -206,6 +261,17 @@
       </fieldset>
 
       <fieldset>
+        <legend>Terhadap VWAP</legend>
+        <label>% di atas/bawah harga rata-rata, min / maks</label>
+        <div class="row"><input type="number" id="f-minvsavg" step="0.5" placeholder="min">
+                         <input type="number" id="f-maxvsavg" step="0.5" placeholder="maks"></div>
+        <p class="hint" style="margin:.6rem 0 0">VWAP = harga rata-rata hari ini, dari feed.
+        Isi min <b>+1</b> untuk melihat pembeli yang mau bayar di atas rata-rata.
+        Dihitung <b>per papan</b>, jadi hanya bermakna untuk RG — di NG/TN transaksinya
+        terlalu sedikit.</p>
+      </fieldset>
+
+      <fieldset>
         <legend>Burst</legend>
         <span class="chk"><input type="checkbox" id="f-burst-on" checked> aktif</span>
         <label>Minimal transaksi</label>
@@ -241,21 +307,38 @@
       <span class="stat"><b id="s-burst">0</b><span>burst</span></span>
       <span class="stat"><b id="rate">0</b><span>/detik</span></span>
       <button id="pause">Pause</button>
+      <button id="btn-hist" title="Lihat transaksi dari arsip harian">Riwayat</button>
       <span id="phase" style="margin-left:auto"></span>
       <button id="logout" title="Keluar dan kembali ke layar QR">Logout</button>
     </div>
+
+    <!-- Bar riwayat: di luar .colbody supaya tidak ikut ter-scroll bersama tabel. -->
+    <div class="hbar hidden" id="hbar">
+      <label>Tanggal <select id="h-date"></select></label>
+      <label>Dari <input type="text" id="h-from" placeholder="0900"></label>
+      <label>Sampai <input type="text" id="h-to" placeholder="1000"></label>
+      <button class="primary" id="h-load">Muat</button>
+      <span class="hint" id="h-info">Saringan di kolom kiri ikut berlaku.</span>
+      <button id="h-exit" style="margin-left:auto">Kembali ke live</button>
+    </div>
+
     <div class="colbody">
       <table>
         <colgroup>
           <col style="width:74px"><col style="width:70px"><col style="width:56px">
-          <col style="width:74px"><col style="width:62px"><col style="width:66px">
-          <col style="width:112px"><col style="width:70px"><col style="width:56px"><col>
+          <col style="width:74px"><col style="width:54px"><col style="width:70px">
+          <col style="width:78px"><col style="width:112px"><col style="width:64px">
+          <col style="width:78px"><col style="width:56px"><col>
         </colgroup>
         <thead>
           <tr>
             <th>Waktu</th><th>Kode</th><th>Papan</th>
-            <th class="num">Harga</th><th class="num">Tick</th><th class="num">Lot</th>
-            <th class="num">Nilai (Rp)</th><th class="num">%</th><th>Burst</th><th>Raw</th>
+            <th class="num">Harga</th>
+            <th title="Sisi agresor dari feed: HAKA = pembeli mengambil offer, HAKI = penjual mengambil bid. Bukan tebakan.">Sisi</th>
+            <th class="num">Tick</th><th class="num">Lot</th>
+            <th class="num">Nilai (Rp)</th><th class="num">%</th>
+            <th class="num" title="Harga terhadap VWAP — harga rata-rata papan ini hari ini">vs VWAP</th>
+            <th>Burst</th><th>Raw</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -267,8 +350,8 @@
   <!-- ── KANAN: tekanan HAKA/HAKI ─────────────────────────────── -->
   <section>
     <div class="colhead">
-      Tekanan HAKA / HAKI
-      <span class="row" style="margin-left:auto">
+      <span id="p-title">Tekanan HAKA / HAKI</span>
+      <span class="row" style="margin-left:auto" id="p-wins">
         <button data-win="60">1m</button>
         <button data-win="300">5m</button>
         <button data-win="900">15m</button>
@@ -297,11 +380,53 @@
   </div>
 </div>
 
+<!-- ── Detail satu emiten: order flow lengkap sejak pembukaan ─────────────── -->
+<div id="detail">
+  <div class="dbox">
+    <div class="dhead">
+      <h3 id="d-sym">—</h3>
+      <span class="kv">harga <b id="d-last">—</b></span>
+      <span class="kv">% <b id="d-chg">—</b></span>
+      <span class="kv">VWAP <b id="d-avg">—</b></span>
+      <span class="kv">vs VWAP <b id="d-vsavg">—</b></span>
+      <span class="kv">H/L <b id="d-hl">—</b></span>
+      <span class="kv">nilai <b id="d-val">—</b></span>
+      <span class="kv">transaksi <b id="d-trades">—</b></span>
+      <span style="margin-left:auto;display:flex;gap:.5rem;align-items:center">
+        <span class="hint" id="d-note"></span>
+        <button id="d-close">Tutup</button>
+      </span>
+    </div>
+    <div class="dbody">
+      <div style="display:grid;gap:.9rem;min-width:0">
+        <div class="dsec">
+          <h4>Delta kumulatif — tekanan beli dikurangi jual, sejak pembukaan</h4>
+          <div class="dcol" id="d-delta"></div>
+          <p class="hint" id="d-delta-note" style="margin:.5rem 0 0"></p>
+        </div>
+        <div class="dsec">
+          <h4>Tekanan keseluruhan</h4>
+          <div class="pbar" style="height:14px"><i class="h" id="d-pbh"></i><i class="k" id="d-pbk"></i></div>
+          <p class="hint" id="d-press" style="margin:.5rem 0 0"></p>
+        </div>
+      </div>
+      <div class="dsec" style="min-width:0">
+        <h4>Footprint — beli vs jual agresif per harga</h4>
+        <table class="fp"><tbody id="d-fp"></tbody></table>
+        <p class="hint" id="d-fp-note" style="margin:.5rem 0 0"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const MAX_ROWS = 200;
 const LQ45 = "ACES,ADRO,AKRA,AMMN,AMRT,ANTM,ARTO,ASII,BBCA,BBNI,BBRI,BBTN,BMRI,BRIS,BRPT,BUKA,CPIN,CTRA,ESSA,EXCL,GGRM,GOTO,HRUM,ICBP,INCO,INDF,INDY,INKP,ISAT,ITMG,JSMR,KLBF,MAPI,MBMA,MDKA,MEDC,PGAS,PGEO,PTBA,SIDO,SMGR,SRTG,TLKM,TOWR,UNTR,UNVR";
 let paused = false, ws = null, expiresAt = 0, recent = [];
+/** Mode riwayat membekukan tabel live dan mengalihkan kolom kanan ke ringkasan arsip.
+ *  Dideklarasikan di sini karena addTrade() dan ws.onmessage sudah membacanya. */
+let histMode = false;
 const nf = new Intl.NumberFormat('id-ID');
 
 $('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Resume' : 'Pause'; };
@@ -330,6 +455,8 @@ $('f-apply').onclick = () => {
     maxPrice: numOrNull('f-maxprice'),
     minChangePct: numOrNull('f-minpct'),
     maxChangePct: numOrNull('f-maxpct'),
+    minVsAvgPct: numOrNull('f-minvsavg'),
+    maxVsAvgPct: numOrNull('f-maxvsavg'),
     timeFrom: strOrNull('f-timefrom'),
     timeTo: strOrNull('f-timeto'),
     burst: {
@@ -359,6 +486,8 @@ function fillForm(c) {
   $('f-maxprice').value = c.maxPrice ?? '';
   $('f-minpct').value = c.minChangePct ?? '';
   $('f-maxpct').value = c.maxChangePct ?? '';
+  $('f-minvsavg').value = c.minVsAvgPct ?? '';
+  $('f-maxvsavg').value = c.maxVsAvgPct ?? '';
   $('f-timefrom').value = c.timeFrom ?? '';
   $('f-timeto').value = c.timeTo ?? '';
   $('f-burst-on').checked = c.burst?.enabled ?? true;
@@ -413,32 +542,303 @@ setInterval(() => {
   $('rate').textContent = (recent.length / 5).toFixed(1);
 }, 1000);
 
-function addTrade(t, burst, count) {
-  recent.push(Date.now());
-  if (paused) return;
-  $('empty').style.display = 'none';
-  const tr = document.createElement('tr');
+/** Satu baris tabel. Dipakai live maupun riwayat supaya kolomnya tidak pernah
+ *  berbeda antara keduanya. Di mode riwayat `burst` selalu kosong: burst adalah
+ *  hitungan jendela bergulir saat live, tidak tersimpan di arsip. */
+function tradeRowHtml(t, burst, count) {
   const cls = t.changePct > 0 ? 'up' : t.changePct < 0 ? 'down' : '';
   const hhmmss = (t.time || '').replace(/(\d{2})(\d{2})(\d{2})/, '$1:$2:$3');
   // Tick = fakta dari feed (selisih vs transaksi sebelumnya), bukan tafsiran.
   const tickCls = t.tick > 0 ? 'up' : t.tick < 0 ? 'down' : 'flat';
   const tickTxt = t.tick > 0 ? `↑ ${nf.format(t.tick)}`
                 : t.tick < 0 ? `↓ ${nf.format(Math.abs(t.tick))}` : '=';
-  tr.innerHTML = `
+  // vs VWAP: harga terhadap rata-rata hari ini. Emiten tanpa VWAP tampil "—",
+  // bukan 0%, supaya tidak terbaca sebagai "tepat di rata-rata".
+  //
+  // VWAP dari feed dihitung PER PAPAN, bukan per emiten: GOTO pernah tercatat VWAP 33
+  // di NG sementara di RG 50. Papan NG/TN hanya berisi segelintir transaksi, jadi VWAP-nya
+  // sering sama dengan harga transaksi itu sendiri dan angka "vs VWAP" nyaris tak bermakna.
+  // Tetap ditampilkan (itu data asli), tapi diredupkan supaya tidak dibaca setara RG.
+  const vaWeak = t.board !== 'RG';
+  const va = t.avg > 0
+    ? `<span class="${vaWeak ? 'flat' : t.vsAvgPct > 0 ? 'up' : t.vsAvgPct < 0 ? 'down' : 'flat'}">${
+        t.vsAvgPct >= 0 ? '+' : ''}${t.vsAvgPct.toFixed(2)}</span>`
+    : '<span class="flat">—</span>';
+  const vaTitle = t.avg > 0
+    ? `VWAP papan ${t.board}: Rp ${nf.format(t.avg)}` +
+      (vaWeak ? ' — papan ini sedikit transaksi, VWAP-nya nyaris sama dengan harga transaksi sendiri' : '')
+    : 'VWAP belum tersedia';
+  // Sisi agresor: fakta dari feed (slot [13]/[14]), bukan tafsiran tick rule.
+  // "·" = feed tidak menyebutkannya untuk transaksi ini (sekitar sepertiga kasus).
+  const side = t.aggressor === 'buy' ? '<span class="v-buy">HAKA</span>'
+             : t.aggressor === 'sell' ? '<span class="v-sell">HAKI</span>'
+             : '<span class="flat">·</span>';
+  return `
     <td>${hhmmss}</td>
-    <td class="sym">${t.symbol}</td>
+    <td class="sym clickable" title="Klik untuk detail order flow">${t.symbol}</td>
     <td><span class="badge ${t.board === 'NG' ? 'ng' : ''}">${t.board}</span></td>
     <td class="num">${nf.format(t.price)}</td>
+    <td class="verdict">${side}</td>
     <td class="num ${tickCls}">${tickTxt}</td>
     <td class="num">${nf.format(t.lot)}</td>
     <td class="num">${nf.format(Math.round(t.value))}</td>
     <td class="num ${cls}">${t.changePct >= 0 ? '+' : ''}${t.changePct.toFixed(2)}</td>
+    <td class="num" title="${vaTitle}">${va}</td>
     <td>${burst ? `<span class="badge burst">${count}×</span>` : ''}</td>
     <td class="raw" title="${t.raw.replace(/"/g, '&quot;')}">${t.raw}</td>`;
+}
+
+function addTrade(t, burst, count) {
+  recent.push(Date.now());
+  // Mode riwayat membekukan tabel: baris live yang menyusup akan tercampur dengan
+  // hasil arsip dan waktunya tidak berurutan lagi. Laju /detik tetap dihitung.
+  if (paused || histMode) return;
+  $('empty').style.display = 'none';
+  const tr = document.createElement('tr');
+  tr.innerHTML = tradeRowHtml(t, burst, count);
   const rows = $('rows');
   rows.prepend(tr);
   while (rows.children.length > MAX_ROWS) rows.lastElementChild.remove();
 }
+
+// ── Riwayat ────────────────────────────────────────────────────────────────
+// Membaca arsip harian di server (logs/lt/YYYY-MM-DD.txt) lewat /api/history.
+// Saringan di kolom kiri ikut dipakai supaya tidak ada dua set kontrol yang
+// artinya sama — tapi hanya kalau "filter aktif" dicentang.
+
+function histParams() {
+  const p = new URLSearchParams({ date: $('h-date').value, limit: '2000' });
+  const from = $('h-from').value.trim(), to = $('h-to').value.trim();
+  if (from) p.set('from', from);
+  if (to) p.set('to', to);
+  if ($('f-enabled').checked) {
+    const minValue = Number($('f-minvalue').value) || 0;
+    if (minValue) p.set('minValue', String(minValue));
+    const wl = $('f-watchlist').value.split(',').map(s=>s.trim()).filter(Boolean);
+    if (wl.length) p.set('symbols', wl.join(','));
+    const boards = ['RG','NG','TN'].filter((b) => $('b-'+b).checked);
+    if (boards.length < 3) p.set('boards', boards.join(','));
+  }
+  return p;
+}
+
+async function loadDays() {
+  const sel = $('h-date');
+  try {
+    const days = await (await fetch('/api/days')).json();
+    const keep = sel.value;
+    sel.innerHTML = days.length
+      ? days.map((d) => `<option value="${d.date}">${d.date} · ${(d.bytes/1e6).toFixed(1)} MB</option>`).join('')
+      : '<option value="">(arsip masih kosong)</option>';
+    if (keep && days.some((d) => d.date === keep)) sel.value = keep;
+  } catch {
+    sel.innerHTML = '<option value="">(gagal membaca arsip)</option>';
+  }
+}
+
+async function loadHistory() {
+  if (!$('h-date').value) { $('h-info').textContent = 'Arsip masih kosong.'; return; }
+  $('h-info').textContent = 'memuat…';
+  $('empty').style.display = '';
+  $('empty').textContent = 'Membaca arsip…';
+  try {
+    const r = await (await fetch('/api/history?' + histParams())).json();
+    if (r.error) throw new Error(r.error);
+    $('rows').innerHTML = r.trades.map((t) => `<tr>${tradeRowHtml(t, false, 0)}</tr>`).join('');
+    $('empty').style.display = r.trades.length ? 'none' : '';
+    if (!r.trades.length) {
+      $('empty').textContent = r.archived
+        ? 'Tidak ada transaksi yang cocok di rentang ini.'
+        : 'Belum ada arsip untuk tanggal itu.';
+    }
+    $('h-info').textContent =
+      `${nf.format(r.scanned)} transaksi di rentang · ${nf.format(r.matched)} cocok` +
+      (r.truncated ? ` · ditampilkan ${nf.format(r.trades.length)} terakhir` : '');
+    // Kolom kanan menampilkan emiten teramai di rentang itu, bukan tekanan live.
+    $('p-title').textContent = 'Emiten teramai (riwayat)';
+    $('p-window').textContent =
+      `${r.symbols.length} emiten · ${r.date} ${r.from || 'awal'}–${r.to || 'akhir'}`;
+    renderPressure(r.symbols, null);
+  } catch (e) {
+    $('h-info').textContent = 'gagal: ' + e.message;
+    $('empty').textContent = 'Gagal membaca arsip.';
+  }
+}
+
+function setHistMode(on) {
+  histMode = on;
+  $('hbar').classList.toggle('hidden', !on);
+  $('btn-hist').classList.toggle('primary', on);
+  $('p-wins').classList.toggle('hidden', on);
+  $('rows').innerHTML = '';
+  $('p-rows').innerHTML = '';
+  $('empty').style.display = '';
+  if (on) {
+    $('empty').textContent = 'Pilih rentang jam lalu klik “Muat”.';
+    $('p-title').textContent = 'Emiten teramai (riwayat)';
+    $('p-window').textContent = '—';
+    loadDays();
+  } else {
+    $('empty').textContent = 'Menunggu transaksi live…';
+    $('p-title').textContent = 'Tekanan HAKA / HAKI';
+    $('h-info').textContent = 'Saringan di kolom kiri ikut berlaku.';
+  }
+}
+$('btn-hist').onclick = () => setHistMode(!histMode);
+$('h-exit').onclick = () => setHistMode(false);
+$('h-load').onclick = () => loadHistory();
+
+// ── Detail satu emiten ─────────────────────────────────────────────────────
+// Dibuka dengan klik kode emiten. Server mengisi dari arsip hari itu lalu
+// memperbaruinya dari feed live, jadi panel ini lengkap sejak pembukaan — bukan
+// mulai dari nol pada detik kamu klik.
+
+let detailSym = null, detailTimer = null;
+
+function fmtRp(v) {
+  const s = v < 0 ? '−' : '';
+  return s + rpShort(Math.abs(v));
+}
+
+const hhmm = (m) => `${m.slice(0, 2)}:${m.slice(2)}`;
+
+function renderDelta(minutes) {
+  // Delta KUMULATIF, bukan per menit: yang dicari arah keseluruhan, dan batang
+  // per menit sendiri terlalu berisik untuk dibaca cepat.
+  let cum = 0;
+  const pts = minutes.map((m) => { cum += m.delta; return { minute: m.minute, cum, close: m.close }; });
+  if (!pts.length) { $('d-delta').innerHTML = ''; $('d-delta-note').textContent = 'Belum ada transaksi.'; return; }
+  const max = Math.max(...pts.map((p) => Math.abs(p.cum))) || 1;
+  // Satu kolom per menit; tinggi batang relatif terhadap |delta| terbesar,
+  // digambar naik dari garis nol (atas = beli) atau turun (bawah = jual).
+  $('d-delta').innerHTML =
+    `<div class="dbars">${pts.map((p) => {
+      const h = Math.round((Math.abs(p.cum) / max) * 58);
+      const up = p.cum >= 0;
+      return `<i title="${p.minute.slice(0,2)}:${p.minute.slice(2)} · delta ${fmtRp(p.cum)} · harga ${nf.format(p.close)}">
+        <span style="display:block;height:60px;position:relative">
+          <span class="${up ? 'dup' : ''}" style="position:absolute;bottom:0;height:${up ? h : 0}px"></span>
+        </span>
+        <span style="display:block;height:60px;position:relative">
+          <span class="${up ? '' : 'ddn'}" style="position:absolute;top:0;height:${up ? 0 : h}px"></span>
+        </span>
+      </i>`;
+    }).join('')}</div>` +
+    // Label jam awal/tengah/akhir: tanpa ini bentuk grafiknya terbaca, tapi
+    // "kapan tekanan berbalik" tidak — dan itu justru pertanyaannya.
+    `<div class="dax"><span>${hhmm(pts[0].minute)}</span>` +
+    (pts.length > 2 ? `<span>${hhmm(pts[Math.floor(pts.length / 2)].minute)}</span>` : '') +
+    `<span>${hhmm(pts[pts.length - 1].minute)}</span></div>`;
+  const last = pts[pts.length - 1].cum;
+  const first = pts[0].cum;
+  const trend = pts.length > 3
+    ? (last > pts[Math.max(0, pts.length - 4)].cum ? 'menguat ke beli' : last < pts[Math.max(0, pts.length - 4)].cum ? 'menguat ke jual' : 'datar')
+    : '—';
+  $('d-delta-note').textContent =
+    `delta akhir ${fmtRp(last)} · ${pts.length} menit · 3 menit terakhir: ${trend}`;
+}
+
+function renderFootprint(fp, last) {
+  if (!fp.length) { $('d-fp').innerHTML = ''; $('d-fp-note').textContent = 'Belum ada transaksi RG.'; return; }
+  // Hanya level teratas menurut aktivitas, tapi ditampilkan urut harga — kalau
+  // semua level ikut, emiten aktif bisa punya ratusan baris dan tidak terbaca.
+  const top = [...fp].sort((a, b) => (b.buyLot + b.sellLot + b.unknownLot) - (a.buyLot + a.sellLot + a.unknownLot))
+                     .slice(0, 24)
+                     .sort((a, b) => b.price - a.price);
+  const max = Math.max(...top.map((f) => Math.max(f.buyLot, f.sellLot))) || 1;
+  $('d-fp').innerHTML = top.map((f) => {
+    const bw = Math.round((f.buyLot / max) * 100);
+    const sw = Math.round((f.sellLot / max) * 100);
+    return `<tr class="${f.price === last ? 'at' : ''}" title="harga ${nf.format(f.price)} · beli ${nf.format(f.buyLot)} lot · jual ${nf.format(f.sellLot)} lot${f.unknownLot ? ' · tanpa sisi ' + nf.format(f.unknownLot) + ' lot' : ''} · ${f.trades} transaksi">
+      <td class="fnum" style="text-align:right">${nf.format(f.sellLot)}</td>
+      <td class="fsell"><div style="width:${sw}%"></div></td>
+      <td class="fprice">${nf.format(f.price)}</td>
+      <td class="fbuy"><div style="width:${bw}%"></div></td>
+      <td class="fnum">${nf.format(f.buyLot)}</td>
+    </tr>`;
+  }).join('');
+  $('d-fp-note').textContent =
+    `${top.length} dari ${fp.length} level harga teraktif · kiri jual agresif, kanan beli agresif · biru = harga terakhir`;
+}
+
+function renderDetail(d, date, live) {
+  // Tanggal disebut kalau bukan hari berjalan, supaya data lampau tidak terbaca live.
+  $('d-sym').textContent = live ? d.symbol : `${d.symbol} · ${date}`;
+  $('d-last').textContent = nf.format(d.last);
+  $('d-chg').innerHTML = `<span class="${d.changePct > 0 ? 'up' : d.changePct < 0 ? 'down' : 'flat'}">${
+    d.changePct >= 0 ? '+' : ''}${d.changePct.toFixed(2)}</span>`;
+  $('d-avg').textContent = d.avg ? nf.format(d.avg) : '—';
+  $('d-vsavg').innerHTML = d.avg
+    ? `<span class="${d.vsAvgPct > 0 ? 'up' : d.vsAvgPct < 0 ? 'down' : 'flat'}">${
+        d.vsAvgPct >= 0 ? '+' : ''}${d.vsAvgPct.toFixed(2)}</span>`
+    : '—';
+  $('d-hl').textContent = `${nf.format(d.low)} – ${nf.format(d.high)}`;
+  $('d-val').textContent = rpShort(d.value);
+  $('d-trades').textContent = nf.format(d.trades);
+
+  const haka = d.hakaPct;
+  $('d-pbh').style.width = (haka >= 0 ? haka : 0).toFixed(1) + '%';
+  $('d-pbk').style.width = (haka >= 0 ? 100 - haka : 0).toFixed(1) + '%';
+  $('d-press').textContent = haka >= 0
+    ? `HAKA ${haka.toFixed(1)}% · beli ${rpShort(d.hakaValue)} vs jual ${rpShort(d.hakiValue)} · delta ${fmtRp(d.delta)}`
+    : 'Belum ada transaksi yang sisinya disebutkan feed.';
+
+  // Yang tidak masuk hitungan tekanan disebutkan terang-terangan, supaya tidak
+  // terlihat seolah seluruh nilai emiten ini sudah terwakili.
+  const notes = [];
+  if (d.unknownValue > 0) notes.push(`${rpShort(d.unknownValue)} tanpa sisi agresor (lelang)`);
+  if (d.blockTrades > 0) notes.push(`${d.blockTrades} blok NG/TN ${rpShort(d.blockValue)} di luar hitungan`);
+  $('d-note').textContent = notes.join(' · ');
+
+  renderDelta(d.minutes);
+  renderFootprint(d.footprint, d.last);
+}
+
+async function loadDetail(reload) {
+  if (!detailSym) return;
+  const p = new URLSearchParams({ code: detailSym });
+  if (histMode && $('h-date').value) p.set('date', $('h-date').value);
+  if (reload) p.set('reload', '1');
+  try {
+    const r = await (await fetch('/api/symbol?' + p)).json();
+    if (r.error) { $('d-note').textContent = r.error; return; }
+    if (r.detail) renderDetail(r.detail, r.date, r.live);
+    // Server yang menentukan apakah tanggal ini masih berjalan — bukan mode halaman.
+    // Melihat "riwayat" hari ini tetap perlu diperbarui; hari lampau tidak.
+    if (r.live && !detailTimer) detailTimer = setInterval(() => loadDetail(false), 2000);
+    if (!r.live && detailTimer) { clearInterval(detailTimer); detailTimer = null; }
+  } catch (e) {
+    $('d-note').textContent = 'gagal memuat: ' + e.message;
+  }
+}
+
+function openDetail(sym) {
+  detailSym = sym;
+  $('detail').classList.add('on');
+  $('d-sym').textContent = sym;
+  $('d-note').textContent = 'memuat…';
+  if (detailTimer) { clearInterval(detailTimer); detailTimer = null; }
+  loadDetail(true);
+}
+
+function closeDetail() {
+  if (detailTimer) { clearInterval(detailTimer); detailTimer = null; }
+  // Beri tahu server supaya berhenti melacak emiten yang tidak dilihat lagi.
+  if (detailSym) fetch('/api/unwatch?code=' + encodeURIComponent(detailSym)).catch(() => {});
+  detailSym = null;
+  $('detail').classList.remove('on');
+}
+
+$('d-close').onclick = closeDetail;
+$('detail').onclick = (e) => { if (e.target === $('detail')) closeDetail(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && detailSym) closeDetail(); });
+
+// Satu handler untuk seluruh halaman: baris tabel datang dan pergi terus, jadi
+// memasang listener per baris akan bocor dan mahal.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('.sym');
+  if (el && el.textContent.trim()) openDetail(el.textContent.trim());
+});
 
 // Kolom filter bisa diciutkan agar dua kolom lain lebih lega. Pilihannya diingat.
 const FCOL_KEY = 'whale.filterCollapsed';
@@ -462,20 +862,36 @@ function rpShort(v) {
   return nf.format(Math.round(v));
 }
 
+/** Dipakai dua sumber: tekanan live (jendela bergulir) dan ringkasan riwayat.
+ *  `windowSec` null berarti pemanggil sudah mengisi sendiri teks #p-window. */
 function renderPressure(list, windowSec) {
   if (windowSec) {
     $('p-window').textContent =
-      `${list.length} emiten · hanya transaksi yang menggerakkan harga · jendela ${Math.round(windowSec / 60)} menit`;
+      `${list.length} emiten · sisi agresor dari feed · jendela ${Math.round(windowSec / 60)} menit`;
   }
   if (!list.length) { $('p-empty').style.display = ''; $('p-rows').innerHTML = ''; return; }
   $('p-empty').style.display = 'none';
   $('p-rows').innerHTML = list.map((p) => {
     const haka = p.hakaPct;
+    // hakaPct negatif = buktinya di bawah ambang; tampilkan kosong, jangan mengarang arah.
+    if (!(haka >= 0)) {
+      return `<tr title="${p.trades} transaksi · Rp ${nf.format(Math.round(p.value))} · feed hanya menyebutkan sisi agresor pada ${p.evidence} transaksi — belum cukup untuk menilai arah">
+        <td class="sym clickable">${p.symbol}</td>
+        <td class="num">${rpShort(p.value)}</td>
+        <td><span class="pbar"></span></td>
+        <td class="num flat">—</td>
+        <td class="verdict v-flat">—</td>
+        <td class="num flat">${nf.format(p.evidence)}</td>
+      </tr>`;
+    }
     const v = haka >= 60 ? ['v-buy', 'BELI'] : haka >= 52 ? ['v-buy', 'beli']
             : haka <= 40 ? ['v-sell', 'JUAL'] : haka <= 48 ? ['v-sell', 'jual']
             : ['v-flat', 'imbang'];
-    return `<tr title="${p.trades} transaksi · Rp ${nf.format(Math.round(p.value))} · arah ditentukan oleh ${p.evidence} transaksi yang menggerakkan harga">
-      <td class="sym">${p.symbol}</td>
+    const range = p.first !== undefined
+      ? ` · ${nf.format(p.first)}→${nf.format(p.last)} (${nf.format(p.low)}–${nf.format(p.high)})`
+      : '';
+    return `<tr title="${p.trades} transaksi · Rp ${nf.format(Math.round(p.value))}${range} · arah ditentukan oleh ${p.evidence} transaksi yang sisinya disebutkan feed">
+      <td class="sym clickable">${p.symbol}</td>
       <td class="num">${rpShort(p.value)}</td>
       <td><span class="pbar"><i class="h" style="width:${haka.toFixed(1)}%"></i><i class="k" style="width:${(100 - haka).toFixed(1)}%"></i></span></td>
       <td class="num">${haka.toFixed(1)}</td>
@@ -495,10 +911,17 @@ function connect() {
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.type === 'trade') return addTrade(m.trade, m.burst, m.count);
+    // Transaksi yang sudah lolos filter sebelum tab ini dibuka — dikirim sekali,
+    // urutannya paling lama dulu, jadi cukup dimasukkan seperti aliran biasa.
+    if (m.type === 'backlog') {
+      if (!histMode) for (const b of m.trades) addTrade(b.trade, b.burst, b.count);
+      return;
+    }
     if (m.type !== 'state') return;
     if (m.phase) $('phase').textContent = m.phase;
     if (m.filter) fillForm(m.filter);
-    if (m.pressure) renderPressure(m.pressure, m.pressureWindowSec);
+    // Di mode riwayat kolom kanan menampilkan ringkasan arsip — jangan ditimpa live.
+    if (m.pressure && !histMode) renderPressure(m.pressure, m.pressureWindowSec);
     if (m.stats) {
       $('s-seen').textContent = nf.format(m.stats.seen);
       $('s-pass').textContent = nf.format(m.stats.passed);
@@ -507,6 +930,12 @@ function connect() {
     // setState hanya menyiarkan perubahan, jadi cek keberadaan field-nya
     if ('loggedIn' in m) setLogged(!!m.loggedIn);
     if ('qrSvg' in m) showQr(m.qrSvg, m.qrExpiresAt);
+    if ('notLoggedMins' in m) {
+      const n = m.notLoggedMins;
+      $('lost').classList.toggle('hidden', !n);
+      if (n) $('lost').textContent =
+        `Bursa sedang buka dan scanner belum login — ${n} menit transaksi tidak terekam. Scan QR untuk mulai merekam.`;
+    }
   };
 }
 connect();
