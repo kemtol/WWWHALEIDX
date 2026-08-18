@@ -138,6 +138,9 @@
   .pbar i.h{background:var(--up)} .pbar i.k{background:var(--down)}
   .verdict{font-size:.75rem;font-weight:600}
   .v-buy{color:var(--up)} .v-sell{color:var(--down)} .v-flat{color:var(--muted)}
+  /* Keyakinan tipis (HAKA% 52-59 / 41-48) diredupkan, bukan ditulis huruf kecil:
+     beda besar-kecil huruf terbaca sebagai inkonsistensi, bukan sebagai sinyal. */
+  .verdict.weak{opacity:.45;font-weight:500}
   button[data-win]{padding:.05rem .75rem}
   /* bar riwayat */
   .hbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;font-size:.78rem;
@@ -1191,9 +1194,15 @@ function updateWinLabels() {
 }
 updateWinLabels();
 
-// Verdict arah jendela — ambang dan kata sama dengan panel tekanan yang digantikan.
-const winVerdict = (haka) => haka >= 60 ? ['v-buy', 'BELI'] : haka >= 52 ? ['v-buy', 'beli']
-  : haka <= 40 ? ['v-sell', 'JUAL'] : haka <= 48 ? ['v-sell', 'jual'] : ['v-flat', 'imbang'];
+// Verdict arah jendela — ambang sama dengan panel tekanan yang digantikan.
+// Keyakinan tipis ditandai dengan meredupkan warnanya (`weak`), bukan menulisnya
+// huruf kecil: yang terakhir itu terbaca sebagai kesalahan ketik, bukan sebagai tingkatan.
+const winVerdict = (haka) =>
+    haka >= 60 ? ['v-buy', 'BELI', 'dominasi beli jelas (HAKA ≥ 60%)']
+  : haka >= 52 ? ['v-buy weak', 'BELI', 'condong beli, tipis (HAKA 52–59%)']
+  : haka <= 40 ? ['v-sell', 'JUAL', 'dominasi jual jelas (HAKA ≤ 40%)']
+  : haka <= 48 ? ['v-sell weak', 'JUAL', 'condong jual, tipis (HAKA 41–48%)']
+  :              ['v-flat', 'imbang', 'seimbang (HAKA 49–51%)'];
 
 function renderCandidates() {
   const k = candSort.k, dir = candSort.dir;
@@ -1211,7 +1220,8 @@ function renderCandidates() {
   if (!rows.length) { $('c-rows').innerHTML = ''; $('c-empty').style.display = ''; return; }
   $('c-empty').style.display = 'none';
   $('c-rows').innerHTML = rows.map((r) => {
-    const haka = r.hakaPct;
+    // Dibulatkan sekali di sini supaya warna dan angka yang tampil selalu sepakat.
+    const haka = r.hakaPct < 0 ? -1 : Math.round(r.hakaPct);
     const hc = haka < 0 ? 'flat' : haka >= 52 ? 'up' : haka <= 48 ? 'down' : 'flat';
     const zc = r.zVwap !== null && Math.abs(r.zVwap) >= 1 ? cls(r.zVwap) : 'flat';
     const tc = r.tape !== null && r.tape >= 2 ? 'up' : 'flat';
@@ -1225,11 +1235,15 @@ function renderCandidates() {
       winCells = `<td class="num flat">—</td><td><span class="pbar"></span></td>
         <td class="num flat">—</td><td class="verdict v-flat">—</td><td class="num flat">—</td>`;
     } else {
-      const v = winVerdict(w.hakaPct);
+      // Verdict dihitung dari angka yang DITAMPILKAN (sudah dibulatkan), bukan nilai
+      // mentahnya: 40,4 tampil "40" tapi mentahnya masuk kategori tipis — pembacanya
+      // lalu melihat "40" berpasangan dengan verdict redup, padahal ambangnya ≤ 40.
+      const wh = Math.round(w.hakaPct);
+      const v = winVerdict(wh);
       winCells = `<td class="num" title="${nf.format(w.trades)} transaksi dalam jendela">${rpShort(w.value)}</td>
         <td><span class="pbar"><i class="h" style="width:${w.hakaPct.toFixed(1)}%"></i><i class="k" style="width:${(100 - w.hakaPct).toFixed(1)}%"></i></span></td>
-        <td class="num ${w.hakaPct >= 52 ? 'up' : w.hakaPct <= 48 ? 'down' : 'flat'}">${w.hakaPct.toFixed(0)}</td>
-        <td class="verdict ${v[0]}">${v[1]}</td>
+        <td class="num ${wh >= 52 ? 'up' : wh <= 48 ? 'down' : 'flat'}">${wh}</td>
+        <td class="verdict ${v[0]}" title="${v[2]}">${v[1]}</td>
         <td class="num flat" title="transaksi yang sisinya disebutkan feed">${nf.format(w.evidence)}</td>`;
     }
     return `<tr title="${title}">
@@ -1237,7 +1251,7 @@ function renderCandidates() {
       <td class="num">${nf.format(r.last)}</td>
       <td class="num ${cls(r.chgPct)}">${signed(r.chgPct)}</td>
       <td class="num ${cls(r.delta)}">${fmtRp(r.delta)}</td>
-      <td class="num ${hc}">${haka >= 0 ? haka.toFixed(0) : '—'}</td>
+      <td class="num ${hc}">${haka >= 0 ? haka : '—'}</td>
       <td class="num ${zc}">${r.zVwap !== null ? signed(r.zVwap) : '—'}</td>
       <td class="num ${tc}">${r.tape !== null ? r.tape.toFixed(1) + '×' : '—'}</td>
       <td class="num" title="${divTitle(r.divergence?.jenis ?? null)}">${divGlyph(r.divergence?.jenis ?? null)}</td>

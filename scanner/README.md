@@ -313,6 +313,23 @@ Kolom kanan menampilkan SATU tabel peringkat yang menggabungkan dua sisi:
 - **Tekanan (jendela 1m/5m/15m)** — nilai jendela, bar H vs K, HAKA% jendela, arah
   (BELI/JUAL/imbang), bukti. Ambang verdict sama dengan panel tekanan lama.
 
+Kolom **ARAH** punya lima tingkat, tapi hanya dua kata:
+
+| HAKA% jendela | Tampilan |
+|---|---|
+| ≥ 60 | `BELI` hijau penuh |
+| 52–59 | `BELI` hijau diredupkan |
+| 49–51 | `imbang` abu-abu |
+| 41–48 | `JUAL` merah diredupkan |
+| ≤ 40 | `JUAL` merah penuh |
+
+Keyakinan tipis ditandai **redup**, bukan huruf kecil. Versi sebelumnya memakai
+`beli`/`jual` huruf kecil untuk tingkat tipis; itu terbaca sebagai inkonsistensi
+penulisan, bukan sebagai tingkatan — pengguna menanyakannya sebagai kesalahan, yang
+sekaligus jadi buktinya bahwa penyandiannya gagal. Ambangnya dinilai dari angka yang
+**sudah dibulatkan** seperti yang tampil di kolom sebelahnya, supaya tidak ada baris
+bertuliskan "40" tapi berverdict tipis (40,4 dibulatkan turun).
+
 Baris = **union** peringkat nilai harian dan nilai jendela: emiten yang ramai pagi
 tapi sepi sekarang tetap tampil, dan yang baru memanas sekarang ikut muncul walau
 nilai hariannya kecil. Klik judul kolom untuk mengurutkan; klik kode emiten membuka
