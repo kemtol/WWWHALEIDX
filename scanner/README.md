@@ -116,14 +116,15 @@ src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
 src/market.ts   papan pasar semua emiten + kandidat (Papan & payload AI)
 src/prompt.ts   bentuk payload AI + penggabungan template (dipakai tombol AI & CLI)
 src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
-src/aihist.ts   riwayat analisa AI di disk (logs/ai/), daftar + ambil satu
+src/aihist.ts   riwayat AI: satu benang per hari (logs/ai/), migrasi bentuk lama
 src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
 public/index.html  halaman login (QR) + dashboard 3 kolom + mode riwayat
 tools/analyze-lt.ts   bedah field feed dari arsip satu hari
 tools/backfill-lt.ts  pemulihan: tarik payload LT lama dari frames.jsonl
 tools/build-payload.ts  payload/prompt analisa AI dari baris perintah, atas arsip
-prompts/scalp.md        template prompt scalping + skema JSON balasan
+prompts/scalp.md        template analisa pertama hari itu + skema JSON balasan
+prompts/scalp-lanjut.md template analisa LANJUTAN — wajib jelaskan pick yang hilang
 tools/replay.ts         uji UI: putar ulang arsip lewat bus, tanpa menyentuh IPOT
 logs/lt/YYYY-MM-DD.txt  arsip transaksi, satu payload mentah per baris
 logs/frames.jsonl       frame protokol NON-LT, dibatasi ~20MB (auto-rotasi)
@@ -411,38 +412,52 @@ GET /api/ai    [?date=YYYY-MM-DD][&n=15]  → { id, date, count, result, usage, 
                                           | { error, prompt }
 ```
 
-### Riwayat analisa (tombol "Riwayat AI")
+### Riwayat: satu hari = satu benang percakapan
 
-Di kanan tombol AI. Modal penuh layar: daftar analisa lampau di kiri (dikelompokkan
-"Hari ini" / "Kemarin" / tanggal, terbaru dulu), hasilnya di kanan — pola sidebar yang
-sudah dikenal dari aplikasi chat. Yang terbaru langsung terbuka saat modal dibuka.
+Tombol **Riwayat AI** di kanan tombol AI. Modal penuh layar: daftar **hari** di kiri
+("Hari ini · 2 analisa · 3 tanya"), percakapan sehari penuh di kanan.
 
-Alasannya bukan kerapian: satu panggilan makan 2–3 menit dan uang, jadi jawabannya tidak
-boleh hilang karena app di-restart atau tab ditutup. Yang lebih penting, riwayat inilah
-yang memungkinkan menilai **apakah rekomendasi kemarin ternyata benar** — mustahil kalau
-hasilnya menguap. Prompt-nya ikut tersimpan, jadi data yang melahirkan rekomendasi itu
-bisa diperiksa ulang, bukan cuma kesimpulannya.
+**Tiap klik tombol AI menyambung benang hari itu, bukan memulai yang baru.** Ini
+keputusan penting, bukan kerapian. Kalau tiap klik memulai percakapan baru, model tidak
+tahu ia pernah merekomendasikan DSSA pagi tadi — jadi saat DSSA hilang dari analisa
+siang, ia diam saja dan pembacanya bertanya-tanya. Padahal **hilangnya sebuah pick
+sering lebih berguna daripada pick barunya**: target tercapai, invalidasi kena, atau
+tekanan belinya habis — semuanya informasi.
+
+Analisa kedua dan seterusnya memakai template `prompts/scalp-lanjut.md` yang dipilih
+otomatis, dan mewajibkan field `perubahan`: apa yang berubah, terutama pick yang
+dikeluarkan **beserta alasannya**. Di layar blok itu diberi aksen kuning di atas
+pick-nya. Selebihnya sama; pertanyaan lanjutan bisa langsung diajukan di benang itu.
+
+Konteks yang dikirim = seluruh benang: payload asli tiap analisa (dibaca dari `p/`) +
+jawabannya + tanya-jawab. Payload lama ikut supaya model membandingkan **angka** lama
+dengan angka baru, bukan cuma kesimpulan. Prefiksnya identik di tiap panggilan, jadi
+cache prompt DeepSeek menanggung sebagian besar biayanya.
+
+Payload yang berkasnya sudah hilang diganti penanda, **bukan dilewatkan diam-diam**:
+kalau jawaban asisten muncul tanpa pertanyaan yang mendahuluinya, urutan peran jadi
+kacau dan model bisa salah membaca siapa mengatakan apa.
 
 Dua berkas terpisah di `logs/ai/` (`src/aihist.ts`), sengaja:
 
 | Berkas | Isi | Kenapa terpisah |
 |---|---|---|
-| `history.jsonl` | ringkasan + hasil, ±2 KB/entri | dibaca **utuh** tiap buka daftar |
-| `p/<id>.txt` | prompt, ±12 KB/entri | hanya dibaca kalau entrinya dipilih |
+| `history.jsonl` | satu baris per **hari**: seluruh item, ±2–10 KB | dibaca **utuh** tiap buka daftar |
+| `p/<tanggal>-<n>.txt` | payload tiap analisa, ±12 KB | hanya saat menyusun konteks atau diminta |
 
-Kalau prompt ikut di JSONL, membuka daftar berarti mem-parse belasan MB tanpa alasan.
-Retensi 500 entri terakhir. Daftar diurutkan dari `ts`, bukan urutan baris — penulisan
-memang selalu append kronologis, tapi bersandar pada itu berarti satu berkas yang pernah
-disunting tangan menghasilkan urutan salah tanpa gejala lain.
+Kalau payload ikut di JSONL, membuka daftar berarti mem-parse belasan MB tanpa alasan.
+Retensi 120 hari. Entri bentuk lama (satu entri per klik, `result` + `turns[]`) otomatis
+dinaikkan ke bentuk benang saat dibaca — riwayat yang sudah ada tidak perlu dibuang.
 
-Hasil live dan hasil riwayat dirender fungsi yang sama (`renderAiInto`), jadi analisa
+Panel live dan panel riwayat dirender fungsi yang sama (`renderAiInto`), jadi percakapan
 lama tidak pernah tampil beda dari yang baru keluar. Kode emiten di hasil bisa diklik:
 panel riwayat menutup, panel detail order flow terbuka.
 
 ```
-GET /api/ai/list           → { entries: [{ id, ts, date, picks, symbols[], model }] }
-GET /api/ai/entry?id=<id>  → { id, ts, date, count, tookMs, usage, result, prompt, turns }
-                           | { error }
+GET /api/ai/list           → { entries: [{ id, date, ts, updated, analyses, chats,
+                                           symbols[], model }] }   (id = tanggal)
+GET /api/ai/entry?id=<tgl> → { id, date, ts, updated, items[], lastPrompt } | { error }
+                             items[] = { kind:'analysis'|'user'|'assistant', ts, … }
 ```
 
 ### Tanya-jawab lanjutan
@@ -472,7 +487,7 @@ hijau dan merah sudah berarti beli/jual, dan memakainya untuk gelembung chat men
 Isi gelembung tetap rata kiri walau gelembungnya di kanan (persis WhatsApp) — teks rata
 kanan membuat tepi kirinya bergerigi begitu lebih dari sebaris.
 
-Giliran disimpan ke `turns[]` di entri riwayat yang sama. Barisnya **ditulis ulang di
+Giliran disimpan sebagai item di benang hari itu. Barisnya **ditulis ulang di
 tempat**, bukan di-append sebagai baris baru: satu id harus tetap satu baris, kalau tidak
 `get()` mengembalikan versi mana pun yang ketemu duluan dan percakapannya terpecah.
 
