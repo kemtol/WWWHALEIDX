@@ -58,7 +58,11 @@
   .colhead{background:var(--panel);height:34px;flex:0 0 34px;padding:0 .8rem;
            font-weight:600;font-size:.78rem;
            text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
-           border-bottom:1px solid var(--line);display:flex;gap:.5rem;align-items:center}
+           border-bottom:1px solid var(--line);display:flex;gap:.5rem;align-items:center;
+           /* Tingginya dipatok 34px, jadi isinya tidak boleh pernah membungkus —
+              begitu sesak, judulnya pecah dua baris dan tombol paling kanan terdorong
+              keluar layar. Yang mengalah adalah teks phase (lihat #phase). */
+           white-space:nowrap;overflow:hidden}
   /* semua tombol di judul kolom seragam dan cukup pendek agar muat di 34px */
   .colhead button{padding:.05rem .7rem;font-size:.76rem;line-height:1.5}
   .colbody{overflow:auto;flex:1;min-height:0}
@@ -67,11 +71,15 @@
     .grid3>section{height:auto;max-height:80vh}
   }
 
-  /* dua tampilan penuh: login QR dan dashboard. Kelas `logged` di body yang menentukan. */
-  #login-view{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
-  #app-view{display:none}
-  body.logged #login-view{display:none}
-  body.logged #app-view{display:block}
+  /* Login = modal yang bisa ditutup, BUKAN gerbang seluruh aplikasi.
+     Login hanya syarat untuk aliran transaksi live; riwayat, Papan, detail per emiten,
+     dan analisa AI semuanya baca arsip dari disk dan jalan penuh tanpa sesi. Versi
+     sebelumnya mengunci semua itu di balik layar QR — di luar jam bursa aplikasinya
+     jadi buntu tanpa ada yang bisa dibuka kuncinya.
+     z-index 80: di atas detail (50), analisa AI (60), dan riwayat AI (70). */
+  #loginbox{position:fixed;inset:0;background:rgba(1,4,9,.9);z-index:80;
+            display:none;align-items:center;justify-content:center;padding:1.5rem}
+  #loginbox.on{display:flex}
 
   /* login */
   #login{display:flex;gap:2.5rem;align-items:center;flex-wrap:wrap;justify-content:center;
@@ -89,6 +97,15 @@
   /* Bursa buka tapi belum login: transaksi sedang hilang. Harus tak bisa dilewatkan. */
   .lost{margin:1rem 0 0;padding:.6rem .8rem;font-size:.85rem;font-weight:600;
         color:var(--down);border:1px solid var(--down);background:rgba(248,81,73,.12)}
+  /* Peringatan versi header — ringkas, tapi tetap merah dan tidak bisa dilewatkan.
+     `flex:0 0 auto` supaya ia TIDAK ikut menyusut saat header sesak: yang boleh
+     mengalah cuma teks phase, bukan peringatan kehilangan data. */
+  .nolog{color:var(--down);font-size:.76rem;font-weight:600;white-space:nowrap;flex:0 0 auto}
+  /* Satu-satunya yang boleh menyusut dan terpotong. Isinya keterangan status yang
+     berguna tapi tidak kritis ("siap login", "sesi dipulihkan"). */
+  #phase{min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+  button.danger{border-color:var(--down);color:var(--down);background:rgba(248,81,73,.12)}
+  button.danger:hover{background:rgba(248,81,73,.2)}
 
   /* filter */
   .fbody{padding:.8rem;display:grid;grid-template-columns:1fr;gap:.8rem}
@@ -380,7 +397,7 @@
 </style>
 </head>
 <body>
-<div id="login-view">
+<div id="loginbox">
   <section id="login">
     <div>
       <h2>Login dengan QR</h2>
@@ -391,9 +408,14 @@
         <li>Scan QR di samping</li>
       </ol>
       <p class="lost hidden" id="lost"></p>
+      <p class="hint" style="margin:1rem 0 0">
+        Login hanya perlu untuk transaksi <b>live</b>. Riwayat, Papan, dan analisa AI
+        tetap bisa dipakai tanpa login — tutup saja panel ini.
+      </p>
       <p style="margin:1.2rem 0 0">
         <button class="primary" id="btn-login">Tampilkan QR</button>
         <span id="countdown" style="margin-left:.8rem"></span>
+        <button id="login-close" style="margin-left:.8rem">Tutup</button>
       </p>
     </div>
     <div class="qrbox placeholder" id="qrbox">
@@ -499,7 +521,12 @@
       <button id="pause">Pause</button>
       <button id="btn-hist" title="Lihat transaksi dari arsip harian">Riwayat</button>
       <span id="phase" style="margin-left:auto"></span>
-      <button id="logout" title="Keluar dan kembali ke layar QR">Logout</button>
+      <!-- Peringatan hidup di HEADER, bukan di dalam modal QR: modalnya bisa ditutup,
+           dan kehilangan data diam-diam saat bursa buka terlalu mahal untuk ikut hilang
+           bersamanya. -->
+      <span class="nolog hidden" id="nolog"></span>
+      <button id="btn-qr" class="danger hidden" title="Belum login — transaksi live tidak terekam">Scan QR</button>
+      <button id="logout" class="hidden" title="Keluar dari sesi IPOT">Logout</button>
     </div>
 
     <!-- Bar riwayat: di luar .colbody supaya tidak ikut ter-scroll bersama tabel. -->
@@ -783,16 +810,45 @@ try {
   }
 } catch { /* draft rusak: abaikan, server punya config yang tersimpan */ }
 
-/** Pindah antara layar QR dan dashboard. */
+/* ── Login: modal, bukan gerbang ────────────────────────────────────────────
+ * Dashboard selalu tampil. Login cuma syarat untuk transaksi live — riwayat,
+ * Papan, detail emiten, dan analisa AI semuanya dari arsip dan jalan tanpa sesi. */
+
+let loggedIn = false;
+let marketOpen = false;
+/** Sekali pengguna menutup modalnya sendiri, jangan dibuka paksa lagi di tab ini.
+ *  Peringatan di header sudah cukup; memaksa modal muncul terus itu menyebalkan. */
+let qrDismissed = false;
+
+function openLogin() { $('loginbox').classList.add('on'); }
+function closeLogin() { qrDismissed = true; $('loginbox').classList.remove('on'); }
+$('login-close').onclick = closeLogin;
+$('loginbox').onclick = (e) => { if (e.target === $('loginbox')) closeLogin(); };
+$('btn-qr').onclick = () => { qrDismissed = false; openLogin(); };
+
+/** Modal muncul sendiri HANYA saat ada yang dipertaruhkan: belum login sementara
+ *  bursa buka. Di luar jam bursa tidak ada data yang hilang, jadi tidak ada alasan
+ *  menghalangi layar. */
+function maybeAutoOpenLogin() {
+  if (!loggedIn && marketOpen && !qrDismissed) openLogin();
+}
+
 function setLogged(on) {
-  document.body.classList.toggle('logged', on);
+  loggedIn = on;
+  $('btn-qr').classList.toggle('hidden', on);
+  $('logout').classList.toggle('hidden', !on);
   if (on) {
+    $('loginbox').classList.remove('on');
+    qrDismissed = false;   // sesi baru: kalau nanti keluar lagi, boleh menawarkan QR lagi
     $('empty').textContent = 'Login berhasil. Menunggu transaksi yang lolos filter…';
   } else {
     expiresAt = 0;
     $('btn-login').textContent = 'Tampilkan QR';
     $('qrbox').className = 'qrbox placeholder';
     $('qrbox').innerHTML = 'Klik “Tampilkan QR”.<br>QR berlaku 60 detik,<br>jadi siapkan HP dulu.';
+    $('empty').innerHTML = 'Belum login — tabel live kosong. '
+      + '<b>Riwayat</b>, <b>Papan</b>, dan <b>analisa AI</b> tetap bisa dipakai dari arsip.';
+    maybeAutoOpenLogin();
   }
 }
 
@@ -1845,11 +1901,26 @@ function connect() {
     // setState hanya menyiarkan perubahan, jadi cek keberadaan field-nya
     if ('loggedIn' in m) setLogged(!!m.loggedIn);
     if ('qrSvg' in m) showQr(m.qrSvg, m.qrExpiresAt);
+    if ('marketOpen' in m) {
+      marketOpen = !!m.marketOpen;
+      // Bursa baru buka sementara belum login: inilah saatnya modal muncul sendiri.
+      maybeAutoOpenLogin();
+    }
     if ('notLoggedMins' in m) {
       const n = m.notLoggedMins;
+      // Dua tempat sekaligus: di modal (kalau sedang terbuka) DAN di header — yang
+      // terakhir itu yang bertahan setelah modalnya ditutup.
       $('lost').classList.toggle('hidden', !n);
       if (n) $('lost').textContent =
         `Bursa sedang buka dan scanner belum login — ${n} menit transaksi tidak terekam. Scan QR untuk mulai merekam.`;
+      // Sengaja sependek mungkin: header tingginya dipatok 34px dan sudah padat —
+      // teks panjang mendorong tombol Scan QR keluar layar. Kalimat lengkapnya di
+      // tooltip dan di dalam modal.
+      $('nolog').classList.toggle('hidden', !n);
+      if (n) {
+        $('nolog').textContent = `⚠ ${n} mnt`;
+        $('nolog').title = `Bursa buka dan scanner belum login — ${n} menit transaksi tidak terekam`;
+      }
     }
   };
 }

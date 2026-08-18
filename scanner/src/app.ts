@@ -2,7 +2,7 @@ import QRCode from 'qrcode';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { parseTrade } from './ipot.js';
+import { parseTrade, marketLikelyOpen } from './ipot.js';
 import { UiServer } from './server.js';
 import { Scanner, DEFAULT_FILTER, type FilterConfig } from './filters.js';
 import { TradeArchive, wibDateStr, wibTimestamp } from './archive.js';
@@ -429,7 +429,20 @@ ui.onCommand = (msg) => {
   }
 };
 
+/** Halaman memakai ini untuk memutuskan kapan modal QR boleh muncul sendiri: hanya
+ *  saat belum login SEMENTARA bursa buka. Dihitung di sini, bukan diambil dari
+ *  greeting collector, karena greeting cuma dikirim sekali saat menyambung — bursa
+ *  yang buka satu jam kemudian tidak akan pernah terkabarkan. Disiarkan hanya saat
+ *  berubah; `setState` menyiarkan delta, jadi mengirimnya tiap 2 detik akan jadi
+ *  lalu lintas sia-sia. */
+let lastMarketOpen: boolean | null = null;
+
 setInterval(() => {
+  const open = marketLikelyOpen();
+  if (open !== lastMarketOpen) {
+    lastMarketOpen = open;
+    ui.setState({ marketOpen: open });
+  }
   if (ui.clientCount === 0) return;
   // Papan: gabungan peringkat nilai harian (papan pasar) dan tekanan jendela —
   // lihat mergeRows. `now` = jam sekarang, bukan transaksi terakhir, supaya

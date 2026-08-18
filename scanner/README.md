@@ -2,6 +2,32 @@
 
 Login QR ke IPOT + running trade live di halaman lokal.
 
+## Login itu modal, bukan gerbang
+
+Dashboard **selalu** bisa dipakai. Login hanya syarat untuk satu hal: aliran transaksi
+**live**. Riwayat, Papan, detail per emiten, dan analisa AI semuanya membaca arsip dari
+disk dan jalan penuh tanpa sesi IPOT — terbukti: dengan collector dalam keadaan belum
+login, `/api/candidates` tetap mengembalikan 7 KB, `/api/history` 14 KB, `/api/symbol`
+26 KB.
+
+Versi sebelumnya mengunci semua itu di balik layar QR penuh-halaman. Akibatnya di luar
+jam bursa aplikasinya buntu: tidak ada yang bisa dilakukan, dan tidak ada gunanya login
+karena memang tidak ada data mengalir.
+
+Sekarang QR jadi modal (`#loginbox`, z-index 80 — di atas semua modal lain) yang bisa
+ditutup lewat tombol maupun klik latar. Kebijakan munculnya:
+
+| Keadaan | Perilaku |
+|---|---|
+| Belum login, **bursa buka** | modal muncul sendiri — ada data yang sedang hilang |
+| Belum login, **bursa tutup** | tidak muncul sama sekali; dashboard langsung terpakai |
+| Sudah ditutup manual | tidak muncul lagi sendiri di tab itu; tombol **Scan QR** merah di header tetap ada |
+| Login berhasil | modal menutup sendiri, tombol berganti **Logout** |
+
+Peringatan `⚠ N mnt` (menit yang tidak terekam) hidup di **header**, bukan di dalam
+modal. Ini disengaja: modalnya bisa ditutup, dan kehilangan data diam-diam saat bursa
+buka terlalu mahal untuk ikut hilang bersamanya.
+
 ## Dua proses: collector dan app
 
 Sejak Agu 2026 scanner berjalan sebagai **dua** proses, dan pembagiannya bukan kosmetik:
@@ -42,7 +68,7 @@ npm run app          # terminal 2 — bebas restart
 2. Klik **Tampilkan QR**. Di HP: **IPOT → Member Area → Security → Login to IPOT Web** →
    scan QR (berlaku 60 detik). QR juga dicetak di terminal collector sebagai cadangan
    kalau belum ada app yang tersambung.
-3. Login berhasil → halaman otomatis pindah ke dashboard, running trade mengalir.
+3. Login berhasil → modal QR menutup sendiri, running trade mengalir.
 4. Tombol **Logout** memutus sesi di collector, bukan cuma menyembunyikan tampilan.
 
 `npm run dev:app` menjalankan app dengan reload otomatis — aman, karena collector tidak
@@ -119,7 +145,7 @@ src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
 src/aihist.ts   riwayat AI: satu benang per hari (logs/ai/), migrasi bentuk lama
 src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
-public/index.html  halaman login (QR) + dashboard 3 kolom + mode riwayat
+public/index.html  dashboard 3 kolom + modal: login QR, detail emiten, analisa & riwayat AI
 tools/analyze-lt.ts   bedah field feed dari arsip satu hari
 tools/backfill-lt.ts  pemulihan: tarik payload LT lama dari frames.jsonl
 tools/build-payload.ts  payload/prompt analisa AI dari baris perintah, atas arsip
@@ -686,7 +712,7 @@ ikut diisi — itu menghitung sesi app ini, bukan sejarah arsip.
 
 ## QR di-scan tapi tidak pernah login
 
-Gejalanya membingungkan: di HP muncul konfirmasi berhasil, tapi scanner tetap di layar QR
+Gejalanya membingungkan: di HP muncul konfirmasi berhasil, tapi scanner tetap belum login
 dan tidak ada satu pun frame balasan dari IPOT — bukan penolakan, bukan error, **diam
 total**. Terjadi 14 Agu 2026.
 
@@ -727,7 +753,10 @@ dan tidak bisa diambil kembali dari mana pun.
 - peringatan mencolok di journal, diulang tiap 10 menit dengan hitungan menit yang hilang
 - **notifikasi desktop** (`notify-send`, urgency critical) — satu-satunya jalur yang sampai
   saat kamu tidak sedang melihat halaman maupun terminal
-- banner merah di layar QR yang menyebutkan berapa menit sudah tidak terekam
+- penanda merah `⚠ N mnt` di header dashboard, di samping tombol Scan QR — sengaja di
+  header dan bukan cuma di dalam modal QR, karena modalnya bisa ditutup dan kehilangan
+  data diam-diam terlalu mahal untuk ikut hilang bersamanya (kalimat lengkapnya di
+  tooltip dan di dalam modal)
 
 Saat akhirnya login, journal mencatat berapa lama yang hilang supaya jejaknya tetap ada.
 Notifikasi gagal (mis. `notify-send` tidak ada, atau service tidak dapat D-Bus session)
