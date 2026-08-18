@@ -9,6 +9,7 @@ import { TradeArchive, wibDateStr, wibTimestamp } from './archive.js';
 import { queryHistory } from './history.js';
 import { SymbolTracker } from './symbol.js';
 import { MarketBoard, buildCandidates, mergeRows } from './market.js';
+import { buildPayload, renderPrompt } from './prompt.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
 /**
@@ -187,6 +188,31 @@ function requestFlush(): Promise<void> {
 
 ui.getBacklog = () => backlog;
 
+/** Berapa emiten teratas yang masuk papan. Dipakai push live MAUPUN prompt AI: kalau
+ *  keduanya pakai angka sendiri, prompt berisi kandidat yang tidak ada di layar (atau
+ *  sebaliknya) tanpa ada yang sadar. Baris akhirnya bisa lebih banyak dari ini —
+ *  `mergeRows` menggabungkan peringkat harian dan peringkat jendela. */
+const BOARD_N = 15;
+
+/** Baris kandidat satu tanggal — sumber TUNGGAL untuk tabel Papan maupun prompt AI.
+ *  Hari berjalan: gabungan papan harian + tekanan jendela dari memori (instan, dan
+ *  persis yang tampil di layar). Hari lampau: dari arsip; kolom tekanan jendela kosong
+ *  karena itu konsep live saja. */
+function candidatesFor(date: string, n: number) {
+  if (date === wibDateStr()) {
+    const recordedFrom = archive.startTime(date);
+    return {
+      date, live: true, recordedFrom,
+      rows: mergeRows(board, scanner.pressureAll(), n, { recordedFrom, now: Date.now() }),
+    };
+  }
+  const r = buildCandidates(archive, date, n);
+  return {
+    date, live: false, recordedFrom: r.recordedFrom,
+    rows: r.rows.map((row) => ({ ...row, win: null })),
+  };
+}
+
 ui.onApi = async (path, q) => {
   if (path === '/api/days') {
     return archive.days().map((d) => ({ date: d, bytes: archive.sizeOf(d) }));
@@ -216,24 +242,24 @@ ui.onApi = async (path, q) => {
   }
 
   if (path === '/api/candidates') {
-    const n = Math.min(Math.max(Number(q.get('n')) || 15, 1), 50);
+    const n = Math.min(Math.max(Number(q.get("n")) || BOARD_N, 1), 50);
+    return candidatesFor(q.get('date') || wibDateStr(), n);
+  }
+
+  // Prompt analisa siap tempel ke AI. Kandidatnya dari `candidatesFor` yang sama dengan
+  // tabel Papan, jadi yang dianalisa model persis yang dilihat di layar — bukan hasil
+  // hitungan kedua yang bisa menyimpang diam-diam.
+  if (path === '/api/prompt') {
     const date = q.get('date') || wibDateStr();
-    const live = date === wibDateStr();
-    const recordedFrom = archive.startTime(date);
-    // Hari berjalan: gabungan harian + tekanan jendela dari memori — instan.
-    // Hari lampau: dari arsip; tekanan jendela tidak ada (konsep live saja).
-    if (live) {
-      const opts = { recordedFrom, now: Date.now() };
-      return {
-        date, live, recordedFrom,
-        rows: mergeRows(board, scanner.pressureAll(), n, opts),
-      };
+    const n = Math.min(Math.max(Number(q.get('n')) || BOARD_N, 1), 30);
+    const c = candidatesFor(date, n);
+    if (!c.rows.length) return { error: `belum ada kandidat untuk ${date}` };
+    try {
+      const prompt = renderPrompt(buildPayload(c.rows, { date, recordedFrom: c.recordedFrom }));
+      return { date, count: c.rows.length, prompt };
+    } catch (e) {
+      return { error: (e as Error).message };
     }
-    const r = buildCandidates(archive, date, n);
-    return {
-      date, live: false, recordedFrom: r.recordedFrom,
-      rows: r.rows.map((row) => ({ ...row, win: null })),
-    };
   }
 
   if (path === '/api/history') {
@@ -292,7 +318,7 @@ setInterval(() => {
   // emiten yang berhenti bertransaksi terbaca lajunya menurun.
   const today = wibDateStr();
   const opts = { recordedFrom: archive.startTime(today), now: Date.now() };
-  ui.setState({ candidates: mergeRows(board, scanner.pressureAll(), 15, opts) });
+  ui.setState({ candidates: mergeRows(board, scanner.pressureAll(), BOARD_N, opts) });
 }, 2000);
 
 // ---- start ------------------------------------------------------------------

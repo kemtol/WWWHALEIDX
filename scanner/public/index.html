@@ -142,6 +142,13 @@
      beda besar-kecil huruf terbaca sebagai inkonsistensi, bukan sebagai sinyal. */
   .verdict.weak{opacity:.45;font-weight:500}
   button[data-win]{padding:.05rem .75rem}
+  /* Baris meta papan: hint di kiri, tombol AI menempel kanan — sejajar dengan 15m di atasnya. */
+  .cmeta{display:flex;align-items:center;gap:.6rem;margin:0 0 .6rem}
+  .cmeta .hint{margin:0;flex:1;min-width:0}
+  #c-ai{padding:.05rem .75rem;letter-spacing:.03em}
+  #c-ai.ok{border-color:var(--up);color:var(--up)}
+  #c-ai.err{border-color:var(--down);color:var(--down)}
+  #c-ai:disabled{opacity:.5;cursor:default}
   /* bar riwayat */
   .hbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;font-size:.78rem;
         padding:.45rem .8rem;background:#12171e;border-bottom:1px solid var(--line)}
@@ -445,7 +452,10 @@
     </div>
     <div class="colbody">
       <div class="pbody">
-        <p class="hint" id="c-window" style="margin:0 0 .6rem">—</p>
+        <div class="cmeta">
+          <p class="hint" id="c-window">—</p>
+          <button id="c-ai" title="Salin prompt analisa (kandidat yang tampil di tabel ini) ke clipboard, lalu tempel di chat AI">AI</button>
+        </div>
         <table id="c-table">
           <colgroup>
             <col style="width:48px"><col style="width:52px"><col style="width:46px">
@@ -1292,6 +1302,33 @@ async function loadCandidatesHist() {
     $('c-window').textContent = 'gagal: ' + e.message;
   }
 }
+
+/** Tombol AI: ambil prompt analisa dari server, salin ke clipboard, tempel di chat AI.
+ *  Sengaja tidak memanggil API AI mana pun — tidak ada kunci berbayar yang tersimpan di
+ *  mesin ini, dan menempelkannya sendiri membuat modelnya bebas dipilih. */
+$('c-ai').onclick = async () => {
+  const btn = $('c-ai');
+  const flash = (txt, cls) => {
+    btn.textContent = txt;
+    btn.className = cls;
+    setTimeout(() => { btn.textContent = 'AI'; btn.className = ''; }, 2500);
+  };
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const p = new URLSearchParams();
+    if (histMode && $('h-date').value) p.set('date', $('h-date').value);
+    const r = await (await fetch('/api/prompt?' + p)).json();
+    if (r.error) throw new Error(r.error);
+    await navigator.clipboard.writeText(r.prompt);
+    flash(`✓ ${r.count} kandidat`, 'ok');
+  } catch (e) {
+    flash('gagal', 'err');
+    console.error('salin prompt gagal:', e);
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);

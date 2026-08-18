@@ -114,12 +114,14 @@ src/archive.ts  arsip transaksi harian (logs/lt/), rotasi + retensi
 src/history.ts  query rentang waktu dari arsip + ringkasan per emiten
 src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
 src/market.ts   papan pasar semua emiten + kandidat (Papan & payload AI)
+src/prompt.ts   bentuk payload AI + penggabungan template (dipakai tombol AI & CLI)
 src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
 public/index.html  halaman login (QR) + dashboard 3 kolom + mode riwayat
 tools/analyze-lt.ts   bedah field feed dari arsip satu hari
 tools/backfill-lt.ts  pemulihan: tarik payload LT lama dari frames.jsonl
-tools/build-payload.ts  payload analisa untuk rekomendasi AI (templat prompts/scalp.md)
+tools/build-payload.ts  payload/prompt analisa AI dari baris perintah, atas arsip
+prompts/scalp.md        template prompt scalping + skema JSON balasan
 tools/replay.ts         uji UI: putar ulang arsip lewat bus, tanpa menyentuh IPOT
 logs/lt/YYYY-MM-DD.txt  arsip transaksi, satu payload mentah per baris
 logs/frames.jsonl       frame protokol NON-LT, dibatasi ~20MB (auto-rotasi)
@@ -347,6 +349,27 @@ GET /api/candidates?n=15[&date=YYYY-MM-DD]
                    → { date, live, recordedFrom, rows[] } — tiap baris memuat field
                      `win` (nilai/hakaPct/bukti jendela) untuk hari berjalan, null
                      untuk tanggal lampau
+```
+
+### Tombol AI
+
+Di ujung kanan baris meta (tepat di bawah tombol 15m). Sekali klik: prompt analisa
+lengkap — template `prompts/scalp.md` + data kandidat yang **sedang tampil di tabel
+ini** — disalin ke clipboard. Tinggal tempel di chat AI mana pun; balasannya diminta
+berupa JSON (picks dengan entry/invalidasi/target, plus daftar `dihindari`).
+
+Sengaja **tidak** memanggil API AI sendiri: tidak ada kunci berbayar tersimpan di mesin
+ini, dan menempel manual membuat modelnya bebas dipilih tanpa biaya per klik. Kalau
+suatu saat mau otomatis, yang perlu ditambah hanya pemanggil API — payload dan
+template-nya sudah siap pakai.
+
+Kandidatnya lewat `candidatesFor()` yang sama dengan tabel, dan jumlahnya diikat
+konstanta `BOARD_N` yang sama dengan push live — supaya prompt tidak pernah berisi
+emiten yang tidak ada di layar. Bentuk payload ada di `src/prompt.ts`, dipakai bersama
+`tools/build-payload.ts` sehingga tombol dan CLI tidak bisa menghasilkan bentuk berbeda.
+
+```
+GET /api/prompt[?date=YYYY-MM-DD][&n=15]  → { date, count, prompt } | { error }
 ```
 
 ## Detail per emiten (order flow)
