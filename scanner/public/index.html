@@ -210,14 +210,28 @@
   .avoid{margin-top:1rem;font-size:.78rem;color:var(--muted);line-height:1.7}
   .avoid b{color:#c9d1d9}
   .aerr{color:var(--down);font-size:.85rem;line-height:1.6}
-  /* Percakapan lanjutan. Giliran pengguna dibedakan lewat latar + rata kanan supaya
-     alur tanya-jawabnya terbaca sekilas, bukan sebagai satu blok teks panjang. */
-  .turns{margin-top:1rem;border-top:1px solid var(--line);padding-top:.9rem}
-  .turn{margin-bottom:.8rem;font-size:.84rem;line-height:1.6}
-  .turn.u{background:var(--panel);border-left:2px solid var(--accent);
-          padding:.5rem .7rem;white-space:pre-wrap}
-  .turn.a{padding:0 .2rem;color:#c9d1d9;white-space:pre-wrap}
+  /* Percakapan lanjutan, gelembung ala aplikasi chat: pertanyaan saya menempel kanan,
+     jawaban model menempel kiri. Warnanya biru-aksen, BUKAN hijau seperti WhatsApp —
+     di aplikasi ini hijau dan merah sudah berarti beli/jual, dan memakainya untuk
+     gelembung chat akan menyesatkan.
+     Sudut tetap siku: seluruh halaman ini memang tanpa border-radius. */
+  .turns{margin-top:1rem;border-top:1px solid var(--line);padding-top:.9rem;
+         display:flex;flex-direction:column;gap:.55rem}
+  .turn{font-size:.84rem;line-height:1.6;white-space:pre-wrap;padding:.5rem .7rem;
+        width:fit-content}
+  /* Isi gelembung tetap rata kiri walau gelembungnya di kanan — persis WhatsApp.
+     Teks rata kanan bikin tepi kiri bergerigi dan susah dibaca kalau lebih dari
+     sebaris; yang membuatnya terbaca "punya saya" adalah posisi dan warnanya. */
+  .turn.u{align-self:flex-end;max-width:80%;
+          background:rgba(88,166,255,.13);border:1px solid rgba(88,166,255,.4)}
+  /* Jawaban model diberi ruang lebih lebar: isinya analisa beberapa paragraf,
+     bukan balasan sebaris. */
+  .turn.a{align-self:flex-start;max-width:92%;
+          background:var(--panel);border:1px solid var(--line);color:var(--text)}
   .turn.pending{opacity:.6}
+  /* Ditaruh SETELAH .turn.a: spesifisitasnya sama (0,2,0), jadi yang belakangan menang.
+     Tanpa baris ini `.aerr` (0,1,0) kalah dan pesan gagal kehilangan warna merahnya. */
+  .turn.aerr{color:var(--down);border-color:var(--down)}
   /* Menempel di bawah, di luar area scroll — seperti kotak kirim di aplikasi chat. */
   .chatbar{flex:0 0 auto;display:flex;gap:.5rem;padding:.6rem .7rem;
            border-top:1px solid var(--line);background:var(--panel)}

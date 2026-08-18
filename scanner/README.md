@@ -460,8 +460,17 @@ terbaca di layar, dan halaman tidak bisa menyelundupkan konteks yang tidak perna
 
 Balasan lanjutan **tidak** dipaksa JSON — memaksakannya hanya membuat model menjawab
 pertanyaan terbuka dalam bentuk yang canggung. Teksnya ditampilkan apa adanya
-(`white-space:pre-wrap`); tidak ada penerjemah markdown, karena itu permukaan tambahan
-yang bisa salah tanpa memberi banyak.
+(`white-space:pre-wrap`), kecuali `**tebal**` yang diterjemahkan karena model memakainya
+di hampir tiap jawaban dan bintang mentahnya mengganggu dibaca. Escaping jalan **lebih
+dulu**, baru tagnya ditambahkan — urutan itu yang membuatnya aman (diuji: `<img
+onerror=…>` dari model tetap jadi teks mati). Sisa markdown sengaja tidak ditangani:
+tidak cukup sering muncul untuk menebus permukaan yang bisa salah.
+
+Pertanyaan Anda muncul sebagai gelembung menempel kanan, jawaban model menempel kiri —
+pola aplikasi chat. Warnanya biru-aksen, **bukan hijau seperti WhatsApp**: di aplikasi ini
+hijau dan merah sudah berarti beli/jual, dan memakainya untuk gelembung chat menyesatkan.
+Isi gelembung tetap rata kiri walau gelembungnya di kanan (persis WhatsApp) — teks rata
+kanan membuat tepi kirinya bergerigi begitu lebih dari sebaris.
 
 Giliran disimpan ke `turns[]` di entri riwayat yang sama. Barisnya **ditulis ulang di
 tempat**, bukan di-append sebagai baris baru: satu id harus tetap satu baris, kalau tidak
