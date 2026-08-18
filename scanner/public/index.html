@@ -40,10 +40,11 @@
 
   /* tiga kolom: filter | livetrade | tekanan.
      gap 1px berlatar --line dipakai sebagai garis pemisah, jadi tidak perlu border. */
-  .grid3{display:grid;grid-template-columns:290px minmax(0,1fr) 420px;
+  .grid3{display:grid;grid-template-columns:290px minmax(0,1fr) 560px;
          gap:1px;background:var(--line);transition:grid-template-columns .15s ease}
-  /* filter diciutkan jadi rail sempit — burger tetap terlihat supaya bisa dibuka lagi */
-  body.fcol .grid3{grid-template-columns:34px minmax(0,1fr) 420px}
+  /* filter diciutkan jadi rail sempit: tengah & kanan bagi rata (50/50) — dengan
+     kolom Raw sudah tiada, keduanya muat berdampingan tanpa tombol Lebar. */
+  body.fcol .grid3{grid-template-columns:34px 1fr 1fr}
   body.fcol #col-filter .colbody,
   body.fcol #col-filter .chtitle{display:none}
   body.fcol #col-filter .colhead{padding:0;justify-content:center}
@@ -120,7 +121,6 @@
          border:1px solid var(--line);color:var(--muted)}
   .badge.ng{border-color:var(--warn);color:var(--warn)}
   .badge.burst{border-color:var(--warn);background:rgba(210,153,34,.15);color:var(--warn);font-weight:600}
-  .raw{font-family:ui-monospace,Menlo,monospace;font-size:.7rem;color:#6e7681}
   .flat{color:#6e7681}
   /* panel tekanan */
   .pbody{padding:.8rem}
@@ -144,42 +144,119 @@
   /* ── panel detail per emiten ──────────────────────────────────────────
      Overlay, bukan kolom keempat: tiga kolom yang ada sudah pas, dan detail
      ini dipakai saat fokus ke satu emiten — bukan sambil memindai. */
-  #detail{position:fixed;inset:0;background:rgba(1,4,9,.82);z-index:50;
-          display:none;align-items:center;justify-content:center;padding:1.2rem}
+  /* Menutup hampir seluruh layar: panel ini dipakai saat fokus ke satu emiten, dan
+     menutupnya tidak memuat ulang apa pun — tabel live tetap mengalir di belakang. */
+  #detail{position:fixed;inset:0;background:rgba(1,4,9,.88);z-index:50;
+          display:none;align-items:center;justify-content:center;padding:.5rem}
   #detail.on{display:flex}
-  .dbox{background:var(--bg);border:1px solid var(--line);width:min(1180px,100%);
-        max-height:100%;display:flex;flex-direction:column}
+  .dbox{background:var(--bg);border:1px solid var(--line);width:100%;
+        height:100%;display:flex;flex-direction:column}
   .dhead{background:var(--panel);border-bottom:1px solid var(--line);padding:.55rem .9rem;
-         display:flex;gap:.9rem;align-items:baseline;flex-wrap:wrap}
-  .dhead h3{margin:0;font-size:1.05rem;letter-spacing:.02em}
-  .dbody{overflow:auto;padding:.9rem;display:grid;gap:.9rem;
-         grid-template-columns:minmax(0,1fr) 340px}
-  @media (max-width:900px){.dbody{grid-template-columns:1fr}}
+         display:flex;gap:.9rem;align-items:center;flex:0 0 auto}
+  .dhead h3{margin:0;font-size:1.15rem;letter-spacing:.02em}
+  /* Tiga kolom: keadaan · grafik · analisis. Gap 1px berlatar --line dipakai sebagai
+     garis pemisah, sama seperti grid utama halaman. Tiap kolom scroll sendiri supaya
+     footprint yang panjang tidak mendorong grafik keluar layar. */
+  .dbody{flex:1;min-height:0;display:grid;gap:1px;background:var(--line);
+         grid-template-columns:240px minmax(0,1fr) 420px}
+  .dcol{background:var(--bg);overflow:auto;padding:.8rem;min-width:0}
+  @media (max-width:1100px){
+    .dbody{grid-template-columns:1fr;overflow:auto}
+    .dcol{overflow:visible}
+  }
+  /* daftar angka di kolom kiri */
+  .kvlist{display:grid;gap:.6rem}
+  /* analisis turunan: dua kolom supaya tidak makan tinggi layar; daftar panjang
+     di d-info tetap satu kolom karena nilainya lebih panjang */
+  #d-analysis{grid-template-columns:1fr 1fr}
+  .kvrow{display:flex;flex-direction:column;gap:.05rem}
+  /* `> span` supaya hanya LABEL yang kena, bukan span pewarna di dalam nilai.
+     Uppercase sengaja tidak dipakai: ia mengubah σ jadi Σ dan "/dtk" jadi "/DTK". */
+  .kvrow > span{font-size:.66rem;color:var(--muted);letter-spacing:.05em}
+  .kvrow b{font-size:1.05rem;font-weight:600;font-variant-numeric:tabular-nums}
+  .kvrow.sm b{font-size:.9rem;font-weight:500}
+  .kvsep{height:1px;background:var(--line);margin:.2rem 0}
+  /* Peringatan kelengkapan data duduk di header, bukan di atas grafik: di sana ia
+     mendorong grafik turun setiap kali panel dibuka. Ringkas satu baris; kalimat
+     penjelasnya pindah ke tooltip. */
+  .dwarn{padding:.2rem .55rem;font-size:.72rem;font-weight:600;white-space:nowrap;
+         color:var(--down);border:1px solid var(--down);background:rgba(248,81,73,.12);
+         cursor:help}
   .kv{display:flex;gap:.3rem;align-items:baseline;font-size:.8rem;color:var(--muted)}
   .kv b{color:var(--text);font-variant-numeric:tabular-nums;font-size:.9rem}
   .dsec{border:1px solid var(--line);padding:.6rem .7rem}
   .dsec h4{margin:0 0 .5rem;font-size:.7rem;text-transform:uppercase;
            letter-spacing:.06em;color:var(--muted);font-weight:600}
   /* delta kumulatif: garis nol di tengah, batang naik/turun dari situ */
-  .dbars{display:flex;align-items:center;gap:1px;height:120px;position:relative}
-  /* Garis nol harus terlihat: tanpa itu, batang yang semuanya positif tidak bisa
-     dibedakan dari batang yang kebetulan sedang di atas nol. */
-  .dbars::after{content:"";position:absolute;left:0;right:0;top:50%;
-                height:1px;background:var(--line)}
+  /* Dua baris sejajar berbagi sumbu waktu: harga di atas, delta di bawah.
+     Sebelumnya keduanya ditumpuk dengan skala berbeda — batang delta selalu dibagi
+     50/50 atas-bawah sementara garis harga memakai tinggi penuh, jadi pada emiten
+     yang deltanya seluruhnya positif garis harga jatuh di paruh bawah yang kosong
+     dan terbaca seolah bagian dari delta negatif. */
+  .chart{display:grid;gap:.2rem}
+  .crow{position:relative;padding-right:46px}
+  /* Tinggi diisi JS lewat style inline (chartPriceH/chartDeltaH, mengikuti tinggi layar)
+     supaya angka yang dipakai menghitung batang tidak bisa berbeda dari tinggi yang
+     dirender. Nilai di sini cuma cadangan kalau style inline gagal terpasang. */
+  .cprice{height:96px}
+  .cdelta{height:130px}
+  .clab{position:absolute;right:0;font-size:.62rem;color:var(--muted);
+        font-variant-numeric:tabular-nums;line-height:1}
+  .clab.top{top:0} .clab.bot{bottom:0}
+  .clab.zero{transform:translateY(-50%)}
+  .czero{position:absolute;left:0;right:46px;height:1px;background:var(--line)}
+  /* Garis VWAP: putus-putus supaya jelas ini acuan, bukan data yang bergerak. */
+  .cvwap{position:absolute;left:0;right:46px;height:0;
+         border-top:1px dashed var(--warn);opacity:.75}
+  .clab.vw{transform:translateY(-50%);color:var(--warn);font-size:.6rem;
+           background:var(--bg);padding-left:3px}
+  .cleg{display:flex;gap:1rem;font-size:.68rem;color:var(--muted);margin-top:.1rem}
+  .cleg s{display:inline-block;width:12px;height:0;border-top:2px solid var(--accent);
+          vertical-align:middle;margin-right:.35rem;text-decoration:none}
+  .cleg u{display:inline-block;width:8px;height:8px;background:var(--up);
+          vertical-align:middle;margin-right:.35rem;text-decoration:none}
+  .dbars{display:flex;align-items:stretch;gap:1px;height:100%;position:relative}
   .dbars i{flex:1;min-width:1px;display:block;position:relative}
   .dax{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);
        font-variant-numeric:tabular-nums;margin-top:.2rem}
-  .dcol{display:flex;flex-direction:column;justify-content:center;height:120px;gap:1px;
-        flex:1;min-width:1px}
+  /* Garis harga di atas batang delta. Divergensi paling cepat ditangkap mata:
+     garis naik sementara batang menyusut = kenaikan tanpa pembeli agresif. */
+  /* width & height WAJIB eksplisit: viewBox 100x100 memberi SVG rasio intrinsik 1:1,
+     jadi `top:0;bottom:0` saja membuatnya setinggi lebarnya (ratusan piksel) dan
+     garisnya meluber keluar panel. Lebar dikurangi kolom label di kanan. */
+  .dline{position:absolute;left:0;top:0;width:calc(100% - 46px);height:100%;
+         pointer-events:none}
+  .dline polyline{fill:none;stroke:var(--accent);stroke-width:1.4;
+                  vector-effect:non-scaling-stroke;opacity:.9}
+  .diverg{margin:0 0 .6rem;padding:.5rem .7rem;font-size:.8rem;font-weight:600;
+          border:1px solid currentColor}
+  .diverg.bear{color:var(--down);background:rgba(248,81,73,.1)}
+  .diverg.bull{color:var(--up);background:rgba(63,185,80,.1)}
+  /* footprint: tandai POC dan batas value area */
+  .fp tr.poc td.fprice{color:var(--warn);font-weight:700}
+  .fp tr.inva td.fprice{background:rgba(210,153,34,.09)}
   .dup{background:var(--up);width:100%} .ddn{background:var(--down);width:100%}
+  .dflat{background:var(--muted);width:100%}
   /* footprint: dua batang berlawanan arah dari tengah, per level harga */
   .fp{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:.76rem}
   .fp td{padding:.12rem .3rem;border:0;white-space:nowrap}
+  .fp th{position:static;background:none;border:0;padding:0 .3rem .25rem;
+         font-size:.62rem;letter-spacing:.04em}
   .fp .fprice{text-align:right;width:62px;font-weight:600}
   .fp .fsell,.fp .fbuy{width:44%}
   .fp .fsell div{background:var(--down);height:11px;margin-left:auto}
   .fp .fbuy div{background:var(--up);height:11px}
   .fp tr.at td.fprice{color:var(--accent)}
+  /* label jendela di header kolom tekanan ("Nilai 5m") */
+  .winlab{font-weight:400;color:var(--muted);font-size:.62rem}
+  th.sort{cursor:pointer;user-select:none}
+  th.sort:hover{color:var(--accent)}
+  /* sel dipadatkan + min-width: tabel boleh scroll di dalam panel, tapi angka
+     tidak boleh terpotong jadi elipsis */
+  #c-table{min-width:640px}
+  #c-table td{padding:.3rem .35rem}
+  #c-table th{padding:.45rem .35rem}
+  #col-trade table{min-width:630px}
   .fp .fnum{color:var(--muted);width:52px;font-size:.72rem}
   .sym.clickable{cursor:pointer;text-decoration:underline dotted var(--line);
                  text-underline-offset:3px}
@@ -298,7 +375,7 @@
   </section>
 
   <!-- ── TENGAH: running trade ────────────────────────────────── -->
-  <section>
+  <section id="col-trade">
     <div class="colhead">
       Live Trade
       <span class="stat"><span class="dot" id="dot"></span><b id="conn">—</b></span>
@@ -325,10 +402,10 @@
     <div class="colbody">
       <table>
         <colgroup>
-          <col style="width:74px"><col style="width:70px"><col style="width:56px">
-          <col style="width:74px"><col style="width:54px"><col style="width:70px">
-          <col style="width:78px"><col style="width:112px"><col style="width:64px">
-          <col style="width:78px"><col style="width:56px"><col>
+          <col style="width:62px"><col style="width:56px"><col style="width:46px">
+          <col style="width:64px"><col style="width:46px"><col style="width:44px">
+          <col style="width:60px"><col style="width:90px"><col style="width:56px">
+          <col style="width:62px"><col style="width:44px">
         </colgroup>
         <thead>
           <tr>
@@ -338,7 +415,7 @@
             <th class="num">Tick</th><th class="num">Lot</th>
             <th class="num">Nilai (Rp)</th><th class="num">%</th>
             <th class="num" title="Harga terhadap VWAP — harga rata-rata papan ini hari ini">vs VWAP</th>
-            <th>Burst</th><th>Raw</th>
+            <th>Burst</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -347,10 +424,10 @@
     </div>
   </section>
 
-  <!-- ── KANAN: tekanan HAKA/HAKI ─────────────────────────────── -->
-  <section>
+  <!-- ── KANAN: papan — kandidat + tekanan dalam satu tabel ────── -->
+  <section id="col-right">
     <div class="colhead">
-      <span id="p-title">Tekanan HAKA / HAKI</span>
+      <span>Papan</span>
       <span class="row" style="margin-left:auto" id="p-wins">
         <button data-win="60">1m</button>
         <button data-win="300">5m</button>
@@ -359,19 +436,36 @@
     </div>
     <div class="colbody">
       <div class="pbody">
-        <p class="hint" id="p-window" style="margin:0 0 .6rem">—</p>
-        <table id="p-table">
+        <p class="hint" id="c-window" style="margin:0 0 .6rem">—</p>
+        <table id="c-table">
           <colgroup>
-            <col style="width:68px"><col style="width:76px"><col>
-            <col style="width:54px"><col style="width:60px"><col style="width:62px">
+            <col style="width:48px"><col style="width:52px"><col style="width:46px">
+            <col style="width:56px"><col style="width:44px"><col style="width:40px">
+            <col style="width:40px"><col style="width:24px"><col style="width:60px">
+            <col style="width:58px"><col style="width:58px">
+            <col style="width:44px"><col style="width:46px"><col style="width:40px">
           </colgroup>
           <thead>
-            <tr><th>Kode</th><th class="num">Nilai</th><th>H vs K</th>
-                <th class="num">HAKA%</th><th>Arah</th><th class="num">Bukti</th></tr>
+            <tr>
+              <th class="sort" data-k="symbol">Kode</th>
+              <th class="num sort" data-k="last">Harga</th>
+              <th class="num sort" data-k="chgPct">chg%</th>
+              <th class="num sort" data-k="delta">Δ</th>
+              <th class="num sort" data-k="hakaPct">HAKA%</th>
+              <th class="num sort" data-k="zVwap">zσ</th>
+              <th class="num sort" data-k="tape">Tape</th>
+              <th class="num sort" data-k="divKind">Div</th>
+              <th class="num sort" data-k="value">Nilai</th>
+              <th class="num sort" data-k="win.value">Nilai<span class="winlab"></span></th>
+              <th>H vs K</th>
+              <th class="num sort" data-k="win.hakaPct">HAKA%<span class="winlab"></span></th>
+              <th>Arah</th>
+              <th class="num">Bukti</th>
+            </tr>
           </thead>
-          <tbody id="p-rows"></tbody>
+          <tbody id="c-rows"></tbody>
         </table>
-        <div class="empty" id="p-empty" style="padding:1.4rem">Menunggu data yang cukup…</div>
+        <div class="empty" id="c-empty" style="padding:1.4rem">Menunggu data…</div>
       </div>
     </div>
   </section>
@@ -385,34 +479,41 @@
   <div class="dbox">
     <div class="dhead">
       <h3 id="d-sym">—</h3>
-      <span class="kv">harga <b id="d-last">—</b></span>
-      <span class="kv">% <b id="d-chg">—</b></span>
-      <span class="kv">VWAP <b id="d-avg">—</b></span>
-      <span class="kv">vs VWAP <b id="d-vsavg">—</b></span>
-      <span class="kv">H/L <b id="d-hl">—</b></span>
-      <span class="kv">nilai <b id="d-val">—</b></span>
-      <span class="kv">transaksi <b id="d-trades">—</b></span>
-      <span style="margin-left:auto;display:flex;gap:.5rem;align-items:center">
-        <span class="hint" id="d-note"></span>
-        <button id="d-close">Tutup</button>
-      </span>
+      <span class="dwarn hidden" id="d-warn"></span>
+      <span class="hint" id="d-note"></span>
+      <button id="d-close" style="margin-left:auto">Tutup</button>
     </div>
     <div class="dbody">
-      <div style="display:grid;gap:.9rem;min-width:0">
-        <div class="dsec">
-          <h4>Delta kumulatif — tekanan beli dikurangi jual, sejak pembukaan</h4>
-          <div class="dcol" id="d-delta"></div>
-          <p class="hint" id="d-delta-note" style="margin:.5rem 0 0"></p>
-        </div>
-        <div class="dsec">
-          <h4>Tekanan keseluruhan</h4>
-          <div class="pbar" style="height:14px"><i class="h" id="d-pbh"></i><i class="k" id="d-pbk"></i></div>
-          <p class="hint" id="d-press" style="margin:.5rem 0 0"></p>
-        </div>
+
+      <!-- KIRI: keadaan apa adanya -->
+      <div class="dcol">
+        <div class="kvlist" id="d-info"></div>
       </div>
-      <div class="dsec" style="min-width:0">
+
+      <!-- TENGAH: grafik -->
+      <div class="dcol">
+        <h4 id="d-delta-title">Delta kumulatif — tekanan beli dikurangi jual</h4>
+        <p class="diverg hidden" id="d-div"></p>
+        <div id="d-delta"></div>
+        <p class="hint" id="d-delta-note" style="margin:.5rem 0 0"></p>
+      </div>
+
+      <!-- KANAN: yang diturunkan / ditafsirkan -->
+      <div class="dcol">
+        <h4>Tekanan keseluruhan</h4>
+        <div class="pbar" style="height:14px"><i class="h" id="d-pbh"></i><i class="k" id="d-pbk"></i></div>
+        <p class="hint" id="d-press" style="margin:.5rem 0 .9rem"></p>
+
+        <div class="kvlist" id="d-analysis" style="margin-bottom:.9rem"></div>
+
         <h4>Footprint — beli vs jual agresif per harga</h4>
-        <table class="fp"><tbody id="d-fp"></tbody></table>
+        <table class="fp">
+          <thead><tr>
+            <th class="fnum" style="text-align:right">jual</th><th></th>
+            <th class="fprice">harga</th><th></th><th class="fnum">beli</th>
+          </tr></thead>
+          <tbody id="d-fp"></tbody>
+        </table>
         <p class="hint" id="d-fp-note" style="margin:.5rem 0 0"></p>
       </div>
     </div>
@@ -443,9 +544,11 @@ $('btn-login').onclick = () => {
 const numOrNull = (id) => { const v = $(id).value.trim(); return v === '' ? null : Number(v); };
 const strOrNull = (id) => { const v = $(id).value.trim(); return v === '' ? null : v; };
 
-$('f-apply').onclick = () => {
+/** Kumpulkan isi form menjadi config filter — dipakai tombol Terapkan dan
+ *  penyimpanan draft, supaya keduanya tidak pernah menyimpang. */
+function buildFilterConfig() {
   const boards = ['RG','NG','TN'].filter((b) => $('b-'+b).checked);
-  const config = {
+  return {
     enabled: $('f-enabled').checked,
     watchlist: $('f-watchlist').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean),
     minValue: Number($('f-minvalue').value) || 0,
@@ -465,6 +568,22 @@ $('f-apply').onclick = () => {
       windowSec: Number($('f-burst-window').value) || 1,
     },
   };
+}
+
+// Draft form disimpan tiap ketikan supaya refresh tidak menghapus setup yang belum
+// sempat diterapkan — dan diterapkan lagi otomatis begitu halaman tersambung.
+const FILTER_DRAFT_KEY = 'whale.filterDraft';
+let pendingDraft = null;
+function saveDraft(config) {
+  try { localStorage.setItem(FILTER_DRAFT_KEY, JSON.stringify(config ?? buildFilterConfig())); } catch {}
+}
+document.querySelectorAll('#col-filter input').forEach((el) => {
+  el.addEventListener('input', () => saveDraft());
+});
+
+$('f-apply').onclick = () => {
+  const config = buildFilterConfig();
+  saveDraft(config);
   ws?.send(JSON.stringify({ cmd: 'filter', config }));
   $('rows').innerHTML = '';
   recent = [];
@@ -497,6 +616,16 @@ function fillForm(c) {
     `≥ Rp ${nf.format(c.minValue||0)} · ${(c.watchlist||[]).length || 'semua'} emiten · burst ${c.burst?.trades}/${c.burst?.windowSec}s`;
 }
 
+// Pulihkan draft filter dari pemakaian sebelumnya. Dikirim ulang ke server begitu
+// tersambung (lihat connect) supaya yang tampil di form = yang benar-benar aktif.
+try {
+  const savedDraft = localStorage.getItem(FILTER_DRAFT_KEY);
+  if (savedDraft) {
+    pendingDraft = JSON.parse(savedDraft);
+    fillForm(pendingDraft);
+  }
+} catch { /* draft rusak: abaikan, server punya config yang tersimpan */ }
+
 /** Pindah antara layar QR dan dashboard. */
 function setLogged(on) {
   document.body.classList.toggle('logged', on);
@@ -513,7 +642,6 @@ function setLogged(on) {
 $('logout').onclick = () => {
   ws?.send(JSON.stringify({ cmd: 'logout' }));
   $('rows').innerHTML = '';
-  $('p-rows').innerHTML = '';
   recent = [];
 };
 
@@ -584,8 +712,7 @@ function tradeRowHtml(t, burst, count) {
     <td class="num">${nf.format(Math.round(t.value))}</td>
     <td class="num ${cls}">${t.changePct >= 0 ? '+' : ''}${t.changePct.toFixed(2)}</td>
     <td class="num" title="${vaTitle}">${va}</td>
-    <td>${burst ? `<span class="badge burst">${count}×</span>` : ''}</td>
-    <td class="raw" title="${t.raw.replace(/"/g, '&quot;')}">${t.raw}</td>`;
+    <td>${burst ? `<span class="badge burst">${count}×</span>` : ''}</td>`;
 }
 
 function addTrade(t, burst, count) {
@@ -631,6 +758,7 @@ async function loadDays() {
       ? days.map((d) => `<option value="${d.date}">${d.date} · ${(d.bytes/1e6).toFixed(1)} MB</option>`).join('')
       : '<option value="">(arsip masih kosong)</option>';
     if (keep && days.some((d) => d.date === keep)) sel.value = keep;
+    if (histMode) loadCandidatesHist();
   } catch {
     sel.innerHTML = '<option value="">(gagal membaca arsip)</option>';
   }
@@ -654,11 +782,6 @@ async function loadHistory() {
     $('h-info').textContent =
       `${nf.format(r.scanned)} transaksi di rentang · ${nf.format(r.matched)} cocok` +
       (r.truncated ? ` · ditampilkan ${nf.format(r.trades.length)} terakhir` : '');
-    // Kolom kanan menampilkan emiten teramai di rentang itu, bukan tekanan live.
-    $('p-title').textContent = 'Emiten teramai (riwayat)';
-    $('p-window').textContent =
-      `${r.symbols.length} emiten · ${r.date} ${r.from || 'awal'}–${r.to || 'akhir'}`;
-    renderPressure(r.symbols, null);
   } catch (e) {
     $('h-info').textContent = 'gagal: ' + e.message;
     $('empty').textContent = 'Gagal membaca arsip.';
@@ -669,18 +792,15 @@ function setHistMode(on) {
   histMode = on;
   $('hbar').classList.toggle('hidden', !on);
   $('btn-hist').classList.toggle('primary', on);
+  // Jendela tekanan hanya konsep live — tombolnya tidak relevan di mode riwayat.
   $('p-wins').classList.toggle('hidden', on);
   $('rows').innerHTML = '';
-  $('p-rows').innerHTML = '';
   $('empty').style.display = '';
   if (on) {
     $('empty').textContent = 'Pilih rentang jam lalu klik “Muat”.';
-    $('p-title').textContent = 'Emiten teramai (riwayat)';
-    $('p-window').textContent = '—';
     loadDays();
   } else {
     $('empty').textContent = 'Menunggu transaksi live…';
-    $('p-title').textContent = 'Tekanan HAKA / HAKI';
     $('h-info').textContent = 'Saringan di kolom kiri ikut berlaku.';
   }
 }
@@ -702,43 +822,115 @@ function fmtRp(v) {
 
 const hhmm = (m) => `${m.slice(0, 2)}:${m.slice(2)}`;
 
-function renderDelta(minutes) {
+/** Tinggi kedua baris grafik, mengikuti tinggi layar karena modal sekarang setinggi
+ *  viewport. Dipakai JS untuk menghitung posisi batang DAN dipasang sebagai style
+ *  inline, jadi tidak ada dua sumber kebenaran yang bisa berbeda. */
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(v)));
+const chartPriceH = () => clamp(window.innerHeight * 0.24, 90, 260);
+const chartDeltaH = () => clamp(window.innerHeight * 0.34, 120, 360);
+
+/** Garis harga di atas batang delta, diskalakan ke rentang harga jendela itu sendiri.
+ *  Tujuannya membandingkan BENTUK, bukan nilai — jadi skalanya sengaja bebas dan tidak
+ *  diberi sumbu: yang dicari adalah saat garis dan batang bergerak berlawanan. */
+function priceLine(pts, lo, hi) {
+  if (pts.length < 2) return '';
+  if (!(hi > lo)) return '';
+  const points = pts.map((p, i) => {
+    const x = ((i + 0.5) / pts.length) * 100;
+    const y = (1 - (p.close - lo) / (hi - lo)) * 100;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  return `<svg class="dline" viewBox="0 0 100 100" preserveAspectRatio="none">
+    <polyline points="${points}"></polyline></svg>`;
+}
+
+function renderDelta(minutes, bands) {
   // Delta KUMULATIF, bukan per menit: yang dicari arah keseluruhan, dan batang
   // per menit sendiri terlalu berisik untuk dibaca cepat.
   let cum = 0;
   const pts = minutes.map((m) => { cum += m.delta; return { minute: m.minute, cum, close: m.close }; });
   if (!pts.length) { $('d-delta').innerHTML = ''; $('d-delta-note').textContent = 'Belum ada transaksi.'; return; }
-  const max = Math.max(...pts.map((p) => Math.abs(p.cum))) || 1;
-  // Satu kolom per menit; tinggi batang relatif terhadap |delta| terbesar,
-  // digambar naik dari garis nol (atas = beli) atau turun (bawah = jual).
-  $('d-delta').innerHTML =
-    `<div class="dbars">${pts.map((p) => {
-      const h = Math.round((Math.abs(p.cum) / max) * 58);
-      const up = p.cum >= 0;
-      return `<i title="${p.minute.slice(0,2)}:${p.minute.slice(2)} · delta ${fmtRp(p.cum)} · harga ${nf.format(p.close)}">
-        <span style="display:block;height:60px;position:relative">
-          <span class="${up ? 'dup' : ''}" style="position:absolute;bottom:0;height:${up ? h : 0}px"></span>
-        </span>
-        <span style="display:block;height:60px;position:relative">
-          <span class="${up ? '' : 'ddn'}" style="position:absolute;top:0;height:${up ? 0 : h}px"></span>
-        </span>
-      </i>`;
-    }).join('')}</div>` +
-    // Label jam awal/tengah/akhir: tanpa ini bentuk grafiknya terbaca, tapi
-    // "kapan tekanan berbalik" tidak — dan itu justru pertanyaannya.
-    `<div class="dax"><span>${hhmm(pts[0].minute)}</span>` +
-    (pts.length > 2 ? `<span>${hhmm(pts[Math.floor(pts.length / 2)].minute)}</span>` : '') +
-    `<span>${hhmm(pts[pts.length - 1].minute)}</span></div>`;
+
+  // Skala delta mengikuti data, bukan dipaksa simetris. Kalau seluruh delta positif,
+  // garis nol jatuh di dasar dan batang memakai seluruh tinggi — jauh lebih terbaca
+  // daripada memakai separuh area untuk sisi yang tidak pernah terpakai.
+  const H = chartDeltaH();
+  const PH = chartPriceH();
+  const hi = Math.max(0, ...pts.map((p) => p.cum));
+  const lo = Math.min(0, ...pts.map((p) => p.cum));
+  const span = (hi - lo) || 1;
+  const zeroPx = (hi / span) * H;            // jarak garis nol dari atas
+  // Warna = ARAH terhadap menit sebelumnya (naik hijau, turun merah), BUKAN posisi
+  // terhadap garis nol. Panel ini ada untuk membedakan "beli kuat dan menguat" dari
+  // "beli kuat tapi mulai habis" — warna-posisi tidak bisa menunjukkan yang kedua,
+  // karena bar yang masih positif tapi melemah tetap tampil hijau. Bentuk batang
+  // tetap memakai garis nol: di atas nol naik dari garis nol, di bawah nol menggantung.
+  const bars = pts.map((p, i) => {
+    const up = p.cum >= 0;
+    const h = Math.round((Math.abs(p.cum) / span) * H);
+    const style = up
+      ? `bottom:${(H - zeroPx).toFixed(1)}px;height:${h}px`
+      : `top:${zeroPx.toFixed(1)}px;height:${h}px`;
+    const dir = i === 0 ? null : p.cum > pts[i - 1].cum ? true : p.cum < pts[i - 1].cum ? false : null;
+    const cls = dir === null ? 'dflat' : dir ? 'dup' : 'ddn';
+    return `<i title="${hhmm(p.minute)} · delta ${fmtRp(p.cum)} · harga ${nf.format(p.close)}">
+      <span class="${cls}" style="position:absolute;left:0;right:0;${style}"></span>
+    </i>`;
+  }).join('');
+
+  // VWAP ikut masuk domain skala harga supaya garisnya selalu terlihat — tanpa itu,
+  // saat harga menjauh, VWAP-nya keluar kotak dan justru saat itulah ia paling penting.
+  const closes = pts.map((p) => p.close);
+  const vwap = bands ? bands.vwap : null;
+  const pLo = Math.min(...closes, ...(vwap ? [vwap] : []));
+  const pHi = Math.max(...closes, ...(vwap ? [vwap] : []));
+  const vwapY = vwap !== null && pHi > pLo
+    ? ((1 - (vwap - pLo) / (pHi - pLo)) * PH).toFixed(1)
+    : null;
+
+  $('d-delta').innerHTML = `
+    <div class="chart">
+      <div class="crow cprice" style="height:${PH}px">
+        ${priceLine(pts, pLo, pHi)}
+        ${vwapY !== null
+          ? `<div class="cvwap" style="top:${vwapY}px" title="VWAP ${nf.format(vwap)}"></div>
+             <span class="clab vw" style="top:${vwapY}px">VWAP ${nf.format(vwap)}</span>`
+          : ''}
+        <span class="clab top">${nf.format(pHi)}</span>
+        <span class="clab bot">${nf.format(pLo)}</span>
+      </div>
+      <div class="crow cdelta" style="height:${H}px">
+        <div class="dbars">${bars}</div>
+        <div class="czero" style="top:${zeroPx.toFixed(1)}px"></div>
+        <span class="clab top">${fmtRp(hi)}</span>
+        <span class="clab zero" style="top:${zeroPx.toFixed(1)}px">0</span>
+        ${lo < 0 ? `<span class="clab bot">${fmtRp(lo)}</span>` : ''}
+      </div>
+      <div class="dax">
+        <span>${hhmm(pts[0].minute)}</span>
+        ${pts.length > 2 ? `<span>${hhmm(pts[Math.floor(pts.length / 2)].minute)}</span>` : ''}
+        <span>${hhmm(pts[pts.length - 1].minute)}</span>
+      </div>
+      <div class="cleg">
+        <span><s></s>harga</span>
+        <span><u></u>delta kumulatif (beli − jual)</span>
+      </div>
+    </div>`;
+
+  // Arah delta 3 menit terakhir. Disebut "delta" terang-terangan, bukan "menguat ke
+  // jual" seperti sebelumnya: kalimat itu terbaca seolah tekanan berbalik jadi jual,
+  // padahal maksudnya cuma delta kumulatifnya menurun — bisa terjadi saat HAKA masih 80%.
   const last = pts[pts.length - 1].cum;
-  const first = pts[0].cum;
+  const ref = pts[Math.max(0, pts.length - 4)].cum;
+  const diff = last - ref;
   const trend = pts.length > 3
-    ? (last > pts[Math.max(0, pts.length - 4)].cum ? 'menguat ke beli' : last < pts[Math.max(0, pts.length - 4)].cum ? 'menguat ke jual' : 'datar')
+    ? (diff > 0 ? `naik ${fmtRp(diff)}` : diff < 0 ? `turun ${fmtRp(Math.abs(diff))}` : 'datar')
     : '—';
   $('d-delta-note').textContent =
-    `delta akhir ${fmtRp(last)} · ${pts.length} menit · 3 menit terakhir: ${trend}`;
+    `delta kumulatif ${fmtRp(last)} · ${pts.length} menit · 3 menit terakhir ${trend}`;
 }
 
-function renderFootprint(fp, last) {
+function renderFootprint(fp, last, profile) {
   if (!fp.length) { $('d-fp').innerHTML = ''; $('d-fp-note').textContent = 'Belum ada transaksi RG.'; return; }
   // Hanya level teratas menurut aktivitas, tapi ditampilkan urut harga — kalau
   // semua level ikut, emiten aktif bisa punya ratusan baris dan tidak terbaca.
@@ -749,33 +941,101 @@ function renderFootprint(fp, last) {
   $('d-fp').innerHTML = top.map((f) => {
     const bw = Math.round((f.buyLot / max) * 100);
     const sw = Math.round((f.sellLot / max) * 100);
-    return `<tr class="${f.price === last ? 'at' : ''}" title="harga ${nf.format(f.price)} · beli ${nf.format(f.buyLot)} lot · jual ${nf.format(f.sellLot)} lot${f.unknownLot ? ' · tanpa sisi ' + nf.format(f.unknownLot) + ' lot' : ''} · ${f.trades} transaksi">
-      <td class="fnum" style="text-align:right">${nf.format(f.sellLot)}</td>
+    // Level yang isinya hanya lelang penutupan tidak punya sisi agresor, jadi tidak
+    // ada batang yang bisa digambar. Tanpa keterangan barisnya terlihat kosong —
+    // padahal justru di situ harga penutupan terbentuk.
+    const onlyAuction = !f.buyLot && !f.sellLot && f.unknownLot > 0;
+    const cls = [
+      f.price === last ? 'at' : '',
+      profile && f.price === profile.poc ? 'poc' : '',
+      profile && f.price >= profile.val && f.price <= profile.vah ? 'inva' : '',
+    ].filter(Boolean).join(' ');
+    return `<tr class="${cls}" title="harga ${nf.format(f.price)} · beli ${nf.format(f.buyLot)} lot · jual ${nf.format(f.sellLot)} lot${f.unknownLot ? ' · lelang (tanpa sisi agresor) ' + nf.format(f.unknownLot) + ' lot' : ''} · ${f.trades} transaksi">
+      <td class="fnum" style="text-align:right">${f.sellLot ? nf.format(f.sellLot) : ''}</td>
       <td class="fsell"><div style="width:${sw}%"></div></td>
       <td class="fprice">${nf.format(f.price)}</td>
-      <td class="fbuy"><div style="width:${bw}%"></div></td>
-      <td class="fnum">${nf.format(f.buyLot)}</td>
+      <td class="fbuy">${onlyAuction
+        ? `<span class="flat" style="font-size:.7rem">lelang</span>`
+        : `<div style="width:${bw}%"></div>`}</td>
+      <td class="fnum">${onlyAuction ? nf.format(f.unknownLot)
+                       : f.buyLot ? nf.format(f.buyLot) : ''}</td>
     </tr>`;
   }).join('');
+  const auction = fp.reduce((n, f) => n + f.unknownLot, 0);
   $('d-fp-note').textContent =
-    `${top.length} dari ${fp.length} level harga teraktif · kiri jual agresif, kanan beli agresif · biru = harga terakhir`;
+    `${top.length} dari ${fp.length} level harga teraktif · kiri jual agresif, kanan beli agresif · biru = harga terakhir` +
+    (auction ? ` · ${nf.format(auction)} lot dari lelang, tanpa sisi agresor` : '');
 }
 
-function renderDetail(d, date, live) {
+/** Satu baris label + nilai di kolom kiri/kanan. */
+function kv(label, value, opts) {
+  const o = opts || {};
+  const t = o.title ? ` title="${String(o.title).replace(/"/g, '&quot;')}"` : '';
+  return `<div class="kvrow${o.sm ? ' sm' : ''}"${t}><span>${label}</span><b>${value}</b></div>`;
+}
+
+const signed = (v, digits) => `${v >= 0 ? '+' : ''}${v.toFixed(digits === undefined ? 2 : digits)}`;
+const cls = (v) => v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
+
+function renderDetail(d, date, live, recordedFrom) {
   // Tanggal disebut kalau bukan hari berjalan, supaya data lampau tidak terbaca live.
   $('d-sym').textContent = live ? d.symbol : `${d.symbol} · ${date}`;
-  $('d-last').textContent = nf.format(d.last);
-  $('d-chg').innerHTML = `<span class="${d.changePct > 0 ? 'up' : d.changePct < 0 ? 'down' : 'flat'}">${
-    d.changePct >= 0 ? '+' : ''}${d.changePct.toFixed(2)}</span>`;
-  $('d-avg').textContent = d.avg ? nf.format(d.avg) : '—';
-  $('d-vsavg').innerHTML = d.avg
-    ? `<span class="${d.vsAvgPct > 0 ? 'up' : d.vsAvgPct < 0 ? 'down' : 'flat'}">${
-        d.vsAvgPct >= 0 ? '+' : ''}${d.vsAvgPct.toFixed(2)}</span>`
-    : '—';
-  $('d-hl').textContent = `${nf.format(d.low)} – ${nf.format(d.high)}`;
-  $('d-val').textContent = rpShort(d.value);
-  $('d-trades').textContent = nf.format(d.trades);
 
+  // Angka kumulatif hanya sah disebut "sejak pembukaan" kalau arsipnya memang mulai
+  // dari sana. Kalau scanner baru login di tengah hari, delta/footprint/high-low
+  // dihitung dari titik itu — dan itu harus dikatakan, bukan disembunyikan.
+  const from = recordedFrom || null;
+  const late = from && from > '090100';
+  $('d-delta-title').textContent = from
+    ? `Delta kumulatif — tekanan beli dikurangi jual, sejak ${hhmm(from.slice(0, 4))}`
+    : 'Delta kumulatif — tekanan beli dikurangi jual';
+  $('d-warn').classList.toggle('hidden', !late);
+  if (late) {
+    $('d-warn').textContent = `⚠ terekam sejak ${hhmm(from.slice(0, 4))}, bukan dari pembukaan`;
+    $('d-warn').title =
+      `Delta, footprint, high/low, dan total volume di panel ini dihitung sejak ` +
+      `${hhmm(from.slice(0, 4))} — bukan sejak 09:00. VWAP tetap benar karena datang dari feed.`;
+  }
+
+  const b = d.bands;
+  const sp = d.speed;
+
+  // ── KIRI: keadaan apa adanya ─────────────────────────────────────────────
+  const info = [
+    kv('Harga', nf.format(d.last)),
+    kv('Perubahan', `<span class="${cls(d.changePct)}">${signed(d.changePct)}%</span>`),
+    kv('VWAP', d.avg ? nf.format(d.avg) : '—'),
+    kv('vs VWAP', d.avg
+      ? `<span class="${cls(d.vsAvgPct)}">${signed(d.vsAvgPct)}%</span>`
+      : '—'),
+    '<div class="kvsep"></div>',
+    kv('High / Low', `${nf.format(d.high)} / ${nf.format(d.low)}`, { sm: true }),
+    kv('Nilai', rpShort(d.value), { sm: true }),
+    kv('Transaksi', nf.format(d.trades), { sm: true }),
+  ];
+  if (sp) {
+    info.push(kv('Laju tape',
+      `<span class="${sp.ratio >= 2 ? 'up' : 'flat'}">${sp.perSec.toFixed(1)}/dtk${
+        sp.baseline > 0 ? ` · ${sp.ratio.toFixed(1)}×` : ''}</span>`,
+      { sm: true,
+        title: `60 detik terakhir ${sp.perSec.toFixed(1)} transaksi/detik (${rpShort(sp.valuePerSec)}/detik)`
+             + ` · rata-rata hari ini ${sp.baseline.toFixed(2)}/detik`
+             + ` — pembandingnya hari ini sendiri, bukan perilaku normal lintas hari` }));
+  }
+  // Yang tidak masuk hitungan tekanan disebutkan terang-terangan, supaya tidak
+  // terlihat seolah seluruh nilai emiten ini sudah terwakili.
+  if (d.unknownValue > 0) {
+    info.push(kv('Lelang', rpShort(d.unknownValue),
+      { sm: true, title: 'Tanpa sisi agresor — tidak ikut hitungan tekanan' }));
+  }
+  if (d.blockTrades > 0) {
+    info.push(kv('Blok NG/TN', `${d.blockTrades} · ${rpShort(d.blockValue)}`,
+      { sm: true, title: 'Negosiasi/tunai — di luar hitungan tekanan dan footprint' }));
+  }
+  $('d-info').innerHTML = info.join('');
+  $('d-note').textContent = '';
+
+  // ── KANAN: yang diturunkan ───────────────────────────────────────────────
   const haka = d.hakaPct;
   $('d-pbh').style.width = (haka >= 0 ? haka : 0).toFixed(1) + '%';
   $('d-pbk').style.width = (haka >= 0 ? 100 - haka : 0).toFixed(1) + '%';
@@ -783,16 +1043,54 @@ function renderDetail(d, date, live) {
     ? `HAKA ${haka.toFixed(1)}% · beli ${rpShort(d.hakaValue)} vs jual ${rpShort(d.hakiValue)} · delta ${fmtRp(d.delta)}`
     : 'Belum ada transaksi yang sisinya disebutkan feed.';
 
-  // Yang tidak masuk hitungan tekanan disebutkan terang-terangan, supaya tidak
-  // terlihat seolah seluruh nilai emiten ini sudah terwakili.
-  const notes = [];
-  if (d.unknownValue > 0) notes.push(`${rpShort(d.unknownValue)} tanpa sisi agresor (lelang)`);
-  if (d.blockTrades > 0) notes.push(`${d.blockTrades} blok NG/TN ${rpShort(d.blockValue)} di luar hitungan`);
-  $('d-note').textContent = notes.join(' · ');
+  const p = d.profile;
+  const or = d.openingRange;
+  const an = [];
+  an.push(kv('POC', p ? nf.format(p.poc) : '—',
+    { sm: true, title: 'Point of Control — harga dengan volume terbesar hari ini' }));
+  an.push(kv('Value area', p ? `${nf.format(p.val)}–${nf.format(p.vah)}` : '—',
+    { sm: true, title: p ? `${(p.coverage * 100).toFixed(0)}% volume tercakup` : '' }));
+  if (b) {
+    an.push(kv('±1σ', `${nf.format(Math.round(b.lower1))}–${nf.format(Math.round(b.upper1))}`,
+      { sm: true,
+        title: `±2σ ${nf.format(Math.round(b.lower2))}–${nf.format(Math.round(b.upper2))} · σ ${b.sd.toFixed(2)}`
+             + ` · VWAP feed ${nf.format(b.vwap)} vs hitungan sendiri ${b.vwapOwn.toFixed(1)}` }));
+    // z diberi warna hanya kalau sudah melewati 1σ, supaya gerak kecil tidak
+    // terlihat berarti.
+    const strong = Math.abs(b.z) >= 1;
+    an.push(kv('Posisi vs VWAP',
+      `<span class="${strong ? cls(b.z) : 'flat'}">${signed(b.z)}σ</span>`, { sm: true }));
+  }
+  if (!or) {
+    an.push(kv('Opening range', '—',
+      { sm: true, title: 'Tidak ada transaksi 09:00–09:29 di data ini' }));
+  } else {
+    const arrow = or.status === 'atas' ? '↑' : or.status === 'bawah' ? '↓' : '·';
+    const val = or.reliable
+      ? `<span class="${or.status === 'atas' ? 'up' : or.status === 'bawah' ? 'down' : ''}">${nf.format(or.low)}–${nf.format(or.high)} ${arrow}</span>`
+      : `<span class="flat">${nf.format(or.low)}–${nf.format(or.high)} (?)</span>`;
+    an.push(kv('Opening range', val, { sm: true,
+      title: or.reliable
+        ? `${or.bars} menit · harga terakhir di ${or.status} rentang pembukaan`
+        : 'Perekaman tidak mulai dari pembukaan — rentang ini tidak lengkap' }));
+  }
+  $('d-analysis').innerHTML = an.join('');
 
-  renderDelta(d.minutes);
-  renderFootprint(d.footprint, d.last);
+  // ── TENGAH: divergensi + grafik ──────────────────────────────────────────
+  const v = d.divergence;
+  const div = $('d-div');
+  div.classList.toggle('hidden', !v || !v.kind);
+  if (v && v.kind) {
+    div.className = `diverg ${v.kind === 'bearish' ? 'bear' : 'bull'}`;
+    div.textContent = v.kind === 'bearish'
+      ? `Divergensi bearish — ${v.windowMin} menit terakhir harga ${signed(v.pricePct)}% tapi delta ${fmtRp(v.deltaChange)}: naik tanpa pembeli agresif.`
+      : `Divergensi bullish — ${v.windowMin} menit terakhir harga ${v.pricePct.toFixed(2)}% tapi delta ${fmtRp(v.deltaChange)}: turun tanpa penjual agresif.`;
+  }
+
+  renderDelta(d.minutes, b);
+  renderFootprint(d.footprint, d.last, d.profile);
 }
+
 
 async function loadDetail(reload) {
   if (!detailSym) return;
@@ -802,7 +1100,7 @@ async function loadDetail(reload) {
   try {
     const r = await (await fetch('/api/symbol?' + p)).json();
     if (r.error) { $('d-note').textContent = r.error; return; }
-    if (r.detail) renderDetail(r.detail, r.date, r.live);
+    if (r.detail) renderDetail(r.detail, r.date, r.live, r.recordedFrom);
     // Server yang menentukan apakah tanggal ini masih berjalan — bukan mode halaman.
     // Melihat "riwayat" hari ini tetap perlu diperbarui; hari lampau tidak.
     if (r.live && !detailTimer) detailTimer = setInterval(() => loadDetail(false), 2000);
@@ -851,7 +1149,11 @@ $('burger').onclick = () => setFilterCollapsed(!document.body.classList.contains
 try { setFilterCollapsed(localStorage.getItem(FCOL_KEY) === '1'); } catch { setFilterCollapsed(false); }
 
 document.querySelectorAll('[data-win]').forEach((b) => {
-  b.onclick = () => ws?.send(JSON.stringify({ cmd: 'pressureWindow', sec: Number(b.dataset.win) }));
+  b.onclick = () => {
+    winSec = Number(b.dataset.win);
+    updateWinLabels();
+    ws?.send(JSON.stringify({ cmd: 'pressureWindow', sec: winSec }));
+  };
 });
 
 /** Rupiah ringkas — kolom kanan sempit, angka penuh tidak muat. */
@@ -862,48 +1164,124 @@ function rpShort(v) {
   return nf.format(Math.round(v));
 }
 
-/** Dipakai dua sumber: tekanan live (jendela bergulir) dan ringkasan riwayat.
- *  `windowSec` null berarti pemanggil sudah mengisi sendiri teks #p-window. */
-function renderPressure(list, windowSec) {
-  if (windowSec) {
-    $('p-window').textContent =
-      `${list.length} emiten · sisi agresor dari feed · jendela ${Math.round(windowSec / 60)} menit`;
-  }
-  if (!list.length) { $('p-empty').style.display = ''; $('p-rows').innerHTML = ''; return; }
-  $('p-empty').style.display = 'none';
-  $('p-rows').innerHTML = list.map((p) => {
-    const haka = p.hakaPct;
-    // hakaPct negatif = buktinya di bawah ambang; tampilkan kosong, jangan mengarang arah.
-    if (!(haka >= 0)) {
-      return `<tr title="${p.trades} transaksi · Rp ${nf.format(Math.round(p.value))} · feed hanya menyebutkan sisi agresor pada ${p.evidence} transaksi — belum cukup untuk menilai arah">
-        <td class="sym clickable">${p.symbol}</td>
-        <td class="num">${rpShort(p.value)}</td>
-        <td><span class="pbar"></span></td>
-        <td class="num flat">—</td>
-        <td class="verdict v-flat">—</td>
-        <td class="num flat">${nf.format(p.evidence)}</td>
-      </tr>`;
+// ── Papan: satu tabel — kandidat (hari penuh) + tekanan (jendela) ─────────────
+// ── Papan: satu tabel — kandidat (hari penuh) + tekanan (jendela) ─────────────
+// Baris = union peringkat nilai harian dan nilai jendela (server, lihat mergeRows).
+// win = null kalau emiten tidak punya cukup bukti di jendela (atau mode arsip).
+let candRows = [];
+let candSort = { k: 'value', dir: -1 };
+let winSec = 300;
+
+const divGlyph = (k) => k === 'bullish' ? '↑' : k === 'bearish' ? '↓' : '·';
+const divTitle = (k) => k === 'bullish' ? 'divergensi bullish — turun tanpa penjual agresif'
+  : k === 'bearish' ? 'divergensi bearish — naik tanpa pembeli agresif' : 'tanpa divergensi';
+
+/** Label kolom jendela mengikuti tombol aktif ("Nilai 5m"). */
+function updateWinLabels() {
+  const lab = ` ${Math.round(winSec / 60)}m`;
+  document.querySelectorAll('#c-table .winlab').forEach((s) => { s.textContent = lab; });
+}
+updateWinLabels();
+
+// Verdict arah jendela — ambang dan kata sama dengan panel tekanan yang digantikan.
+const winVerdict = (haka) => haka >= 60 ? ['v-buy', 'BELI'] : haka >= 52 ? ['v-buy', 'beli']
+  : haka <= 40 ? ['v-sell', 'JUAL'] : haka <= 48 ? ['v-sell', 'jual'] : ['v-flat', 'imbang'];
+
+function renderCandidates() {
+  const k = candSort.k, dir = candSort.dir;
+  const rows = [...candRows].sort((a, b) => {
+    if (k === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
+    const num = (r) => {
+      const v = k.startsWith('win.') ? (r.win ? r.win[k.slice(4)] : null) : r[k];
+      if (v === null || v === undefined) return -Infinity;
+      if (k === 'divKind') return v === 'bullish' ? 1 : v === 'bearish' ? -1 : 0;
+      return v;
+    };
+    const x = num(a), y = num(b);
+    return dir * (x < y ? -1 : x > y ? 1 : 0);
+  });
+  if (!rows.length) { $('c-rows').innerHTML = ''; $('c-empty').style.display = ''; return; }
+  $('c-empty').style.display = 'none';
+  $('c-rows').innerHTML = rows.map((r) => {
+    const haka = r.hakaPct;
+    const hc = haka < 0 ? 'flat' : haka >= 52 ? 'up' : haka <= 48 ? 'down' : 'flat';
+    const zc = r.zVwap !== null && Math.abs(r.zVwap) >= 1 ? cls(r.zVwap) : 'flat';
+    const tc = r.tape !== null && r.tape >= 2 ? 'up' : 'flat';
+    const fp = r.fpTop.map((f) => `${nf.format(f.price)}:${nf.format(f.buyLot)}/${nf.format(f.sellLot)}`).join(' · ');
+    const title = `${r.symbol} · ${nf.format(r.trades)} transaksi · POC ${r.poc ?? '—'}`
+      + ` · VA ${r.val ?? '—'}–${r.vah ?? '—'} · footprint ${fp}`;
+    // Kolom tekanan jendela — null = tanpa bukti cukup (atau mode arsip).
+    let winCells;
+    const w = r.win;
+    if (!w) {
+      winCells = `<td class="num flat">—</td><td><span class="pbar"></span></td>
+        <td class="num flat">—</td><td class="verdict v-flat">—</td><td class="num flat">—</td>`;
+    } else {
+      const v = winVerdict(w.hakaPct);
+      winCells = `<td class="num" title="${nf.format(w.trades)} transaksi dalam jendela">${rpShort(w.value)}</td>
+        <td><span class="pbar"><i class="h" style="width:${w.hakaPct.toFixed(1)}%"></i><i class="k" style="width:${(100 - w.hakaPct).toFixed(1)}%"></i></span></td>
+        <td class="num ${w.hakaPct >= 52 ? 'up' : w.hakaPct <= 48 ? 'down' : 'flat'}">${w.hakaPct.toFixed(0)}</td>
+        <td class="verdict ${v[0]}">${v[1]}</td>
+        <td class="num flat" title="transaksi yang sisinya disebutkan feed">${nf.format(w.evidence)}</td>`;
     }
-    const v = haka >= 60 ? ['v-buy', 'BELI'] : haka >= 52 ? ['v-buy', 'beli']
-            : haka <= 40 ? ['v-sell', 'JUAL'] : haka <= 48 ? ['v-sell', 'jual']
-            : ['v-flat', 'imbang'];
-    const range = p.first !== undefined
-      ? ` · ${nf.format(p.first)}→${nf.format(p.last)} (${nf.format(p.low)}–${nf.format(p.high)})`
-      : '';
-    return `<tr title="${p.trades} transaksi · Rp ${nf.format(Math.round(p.value))}${range} · arah ditentukan oleh ${p.evidence} transaksi yang sisinya disebutkan feed">
-      <td class="sym clickable">${p.symbol}</td>
-      <td class="num">${rpShort(p.value)}</td>
-      <td><span class="pbar"><i class="h" style="width:${haka.toFixed(1)}%"></i><i class="k" style="width:${(100 - haka).toFixed(1)}%"></i></span></td>
-      <td class="num">${haka.toFixed(1)}</td>
-      <td class="verdict ${v[0]}">${v[1]}</td>
-      <td class="num flat">${nf.format(p.evidence)}</td>
+    return `<tr title="${title}">
+      <td class="sym clickable">${r.symbol}</td>
+      <td class="num">${nf.format(r.last)}</td>
+      <td class="num ${cls(r.chgPct)}">${signed(r.chgPct)}</td>
+      <td class="num ${cls(r.delta)}">${fmtRp(r.delta)}</td>
+      <td class="num ${hc}">${haka >= 0 ? haka.toFixed(0) : '—'}</td>
+      <td class="num ${zc}">${r.zVwap !== null ? signed(r.zVwap) : '—'}</td>
+      <td class="num ${tc}">${r.tape !== null ? r.tape.toFixed(1) + '×' : '—'}</td>
+      <td class="num" title="${divTitle(r.divergence?.jenis ?? null)}">${divGlyph(r.divergence?.jenis ?? null)}</td>
+      <td class="num">${rpShort(r.value)}</td>
+      ${winCells}
     </tr>`;
   }).join('');
 }
 
+document.querySelectorAll('#c-table th.sort').forEach((th) => {
+  th.onclick = () => {
+    const k = th.dataset.k;
+    if (candSort.k === k) candSort.dir = -candSort.dir;
+    else candSort = { k, dir: k === 'symbol' ? 1 : -1 };
+    renderCandidates();
+  };
+});
+
+$('h-date').onchange = () => { if (histMode) loadCandidatesHist(); };
+
+/** Papan untuk tanggal arsip (mode riwayat): dihitung server dari arsip, butuh
+ *  beberapa detik — sekali per ganti tanggal, bukan polling. Kolom jendela kosong. */
+async function loadCandidatesHist() {
+  const date = $('h-date').value;
+  if (!date) { candRows = []; renderCandidates(); $('c-window').textContent = 'Arsip masih kosong.'; return; }
+  $('c-window').textContent = `memuat papan ${date}…`;
+  try {
+    const r = await (await fetch('/api/candidates?date=' + encodeURIComponent(date))).json();
+    if (r.error) throw new Error(r.error);
+    candRows = r.rows;
+    renderCandidates();
+    $('c-window').innerHTML =
+      `${r.rows.length} emiten · ${date} · arsip` +
+      (r.recordedFrom && r.recordedFrom > '090100' ? ` · terekam dari ${hhmm(r.recordedFrom.slice(0, 4))}` : '') +
+      ` · <button id="c-refresh" title="muat ulang">↻</button>`;
+    $('c-refresh').onclick = () => loadCandidatesHist();
+  } catch (e) {
+    $('c-window').textContent = 'gagal: ' + e.message;
+  }
+}
+
 function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
-  ws.onopen = () => { $('conn').textContent = 'tersambung'; $('dot').classList.add('on'); };
+  ws.onopen = () => {
+    $('conn').textContent = 'tersambung'; $('dot').classList.add('on');
+    // Draft filter dari localStorage diterapkan lagi — refresh tidak boleh
+    // mengubah filter yang sedang aktif.
+    if (pendingDraft) {
+      ws.send(JSON.stringify({ cmd: 'filter', config: pendingDraft }));
+      pendingDraft = null;
+    }
+  };
   ws.onclose = () => {
     $('conn').textContent = 'terputus'; $('dot').classList.remove('on');
     setTimeout(connect, 2000);
@@ -918,10 +1296,20 @@ function connect() {
       return;
     }
     if (m.type !== 'state') return;
-    if (m.phase) $('phase').textContent = m.phase;
-    if (m.filter) fillForm(m.filter);
-    // Di mode riwayat kolom kanan menampilkan ringkasan arsip — jangan ditimpa live.
-    if (m.pressure && !histMode) renderPressure(m.pressure, m.pressureWindowSec);
+    // phase kosong = sengaja dibersihkan (mis. setelah login berhasil) — kosongkan
+    // juga teksnya, bukan dibiarkan menempel.
+    if ('phase' in m) $('phase').textContent = m.phase || '';
+    if (m.filter) {
+      fillForm(m.filter);
+      if (m.filter.pressureWindowSec) { winSec = m.filter.pressureWindowSec; updateWinLabels(); }
+    }
+    // Di mode riwayat kolom kanan menampilkan arsip — jangan ditimpa live.
+    if (m.candidates && !histMode) {
+      candRows = m.candidates;
+      renderCandidates();
+      $('c-window').textContent =
+        `${candRows.length} emiten · jendela ${Math.round(winSec / 60)}m · klik kode untuk detail`;
+    }
     if (m.stats) {
       $('s-seen').textContent = nf.format(m.stats.seen);
       $('s-pass').textContent = nf.format(m.stats.passed);

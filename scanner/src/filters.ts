@@ -130,12 +130,15 @@ export class Scanner {
     if (i > 0) arr.splice(0, i);
   }
 
-  /** Peringkat tekanan, diurutkan dari nilai transaksi terbesar dalam jendela.
-   *  Emiten dengan bukti terlalu sedikit tidak ditampilkan — lebih baik kosong
-   *  daripada menampilkan angka yang bersandar pada segelintir transaksi. */
-  pressureTop(limit = 15, minEvidence = 10): Pressure[] {
+  /**
+   * Tekanan semua emiten dalam jendela yang buktinya cukup — lebih baik kosong
+   * daripada menampilkan angka yang bersandar pada segelintir transaksi. Bentuk
+   * Map supaya pemanggil bisa menggabungnya dengan data lain per emiten;
+   * pressureTop tinggal mengurutkan dan memotong, satu sumber hitungan.
+   */
+  pressureAll(minEvidence = 10): Map<string, Pressure> {
     const cutoff = Date.now() - this.config.pressureWindowSec * 1000;
-    const out: Pressure[] = [];
+    const out = new Map<string, Pressure>();
     for (const [symbol, arr] of this.flow) {
       let hakaValue = 0, hakiValue = 0, trades = 0, value = 0, evidence = 0;
       for (const [ts, v, dir] of arr) {
@@ -147,14 +150,19 @@ export class Scanner {
       }
       const total = hakaValue + hakiValue;
       if (evidence < minEvidence || total <= 0) continue;
-      out.push({
+      out.set(symbol, {
         symbol, trades, value, hakaValue, hakiValue,
         hakaPct: (hakaValue / total) * 100,
         evidence,
       });
     }
-    out.sort((a, b) => b.value - a.value);
-    return out.slice(0, limit);
+    return out;
+  }
+
+  pressureTop(limit = 15, minEvidence = 10): Pressure[] {
+    return [...this.pressureAll(minEvidence).values()]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, limit);
   }
 
   /** Hasil evaluasi satu transaksi. */
@@ -211,6 +219,18 @@ export class Scanner {
     };
     // jendela lama tidak valid lagi kalau durasinya berubah
     if (patch.burst?.windowSec !== undefined) this.windows.clear();
+  }
+
+  /** Isi jendela bergulir dari transaksi historis, tanpa menyentuh statistik maupun
+   *  hitungan burst. Dipakai app saat start supaya panel tekanan tidak kosong beberapa
+   *  menit setelah restart — sesuatu yang jadi sering terjadi sejak app dipisah dari
+   *  collector dan boleh direstart bebas.
+   *
+   *  `t.ts` HARUS sudah diisi waktu bursa yang asli (lihat wibTimestamp), bukan waktu
+   *  terima — kalau tidak, seluruh isi arsip akan terlihat baru saja terjadi. */
+  warmup(t: Trade) {
+    this.trackFlow(t);
+    this.track(t);
   }
 
   resetStats() { this.stats = { seen: 0, passed: 0, bursts: 0 }; }

@@ -7,11 +7,23 @@ ke server luar. Diakses via `https://whale.scanner.local` (auto-start lewat syst
 
 ## 1. Tujuan
 
-Scanner yang menampilkan running trade IDX secara live lewat feed IPOT, dengan filter
-untuk memisahkan transaksi yang "layak dilihat" (nilai besar, burst, emiten tertentu)
-dari derasnya seluruh transaksi bursa — dan memberi indikasi kasar arah tekanan beli vs
-jual (HAKA/HAKI) per emiten. Intinya: alat bantu melihat saham apa yang lagi "rame",
-bukan sistem alert otomatis.
+Pengguna tunggal tool ini adalah **scalper**. Pertanyaan yang harus bisa dijawab tool
+ini setiap hari bursa: **"saham apa yang HARI INI potensial ditradingkan untuk target
+1,5–2%?"** — bukan prediksi jangka panjang, bukan rekomendasi hold.
+
+Dua cara tool ini menjawabnya (detail rencananya di bagian 5):
+
+1. **Sinyal manual** — menampilkan transaksi beli agresif (HAKA) yang ramai, khususnya
+   yang terjadi saat harga berada di **area penting** (VWAP, high/low hari ini,
+   penutupan kemarin, angka bulat psikologis), dipisah dari derasnya seluruh transaksi
+   bursa lewat filter nilai/burst/papan/jam.
+2. **Rekomendasi AI** — satu tombol yang mengadu Claude vs Kimi vs DeepSeek dengan
+   prompt identik untuk menganalisa running trade + OB2 hari ini dan memilih emiten
+   yang layak di-scalp.
+
+Batas yang tidak berubah sejak awal: ini **bukan sistem alert otomatis dan bukan
+auto-trading**. Tool menyiapkan kandidat beserta buktinya; keputusan eksekusi tetap
+di tangan pengguna.
 
 ## 2. Kenapa bukan Rust / TUI
 
@@ -31,22 +43,27 @@ ditengok kembali.
 
 ## 3. Cara kerja (ringkas)
 
+Dua proses, dipisah supaya sesi IPOT tidak ikut mati tiap kali kode UI diubah:
+
 ```
-IPOT WebSocket (socketcluster) ──> scanner/src/ipot.ts   (koneksi, login QR, parse LT)
-                                          │
-                          ┌───────────────┴───────────────┐
-                          │                               │
-              scanner/src/filters.ts          scanner/src/archive.ts
-              (filter + burst + HAKA/HAKI)     (arsip harian logs/lt/)
-                          │                               │
-                          │                    scanner/src/history.ts
-                          │                    (query rentang + ringkasan)
-                          └───────────────┬───────────────┘
-                                          │
-                                    scanner/src/server.ts  (broadcast + /api/*)
-                                          │
-                                    scanner/public/index.html (login → dashboard → riwayat)
+IPOT WebSocket ──> COLLECTOR (src/collector.ts)
+                     sesi, reconnect, peringatan login
+                     │
+                     ├──> logs/lt/YYYY-MM-DD.txt   arsip mentah, tahan restart app
+                     │
+                     └──(unix socket, src/bus.ts)──> APP (src/app.ts)
+                                                       filters.ts  burst + HAKA/HAKI
+                                                       symbol.ts   delta + footprint
+                                                       market.ts   papan pasar (Papan)
+                                                       history.ts  query arsip
+                                                       server.ts   UI + /api/*
+                                                          │
+                                                       public/index.html
 ```
+
+Collector sengaja tidak memuat UI maupun analitik: IPOT menolak token sesi yang
+dipulihkan, jadi tiap restart proses pemegang koneksi menuntut scan QR ulang. App boleh
+direstart sesering apa pun tanpa menyentuh sesi.
 
 Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
 [`scanner/README.md`](../scanner/README.md), supaya tidak dobel dan gampang basi.
@@ -74,24 +91,108 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
   berisi hitungan menit yang tidak terekam.
 - **Arsip harian & riwayat** — setiap transaksi disimpan mentah per hari (~25 MB/hari
   bursa), bisa dilihat mundur per rentang jam beserta peringkat emiten teramai.
+- **Detail per emiten** — klik kode emiten: delta kumulatif per menit (tekanan menguat
+  atau melemah) dan footprint beli/jual agresif per level harga, lengkap sejak pembukaan.
+  Jembatan dari "emiten mana yang rame" ke keputusan di satu emiten.
+- **Indikator intraday (scalping)** — divergensi harga vs delta pada jendela 15 menit,
+  POC & value area 70% dari footprint, opening range 09:00–09:29 beserta status
+  breakout-nya, pita VWAP ±1σ/±2σ dengan posisi harga dalam satuan σ, dan laju tape
+  (transaksi/detik dibanding rata-rata hari ini). Semua dari feed LT, tanpa OB2. Yang
+  bergantung pada perekaman sejak pembukaan diberi tanda kalau arsipnya tidak lengkap.
+- **Papan** — kolom kanan: SATU tabel yang menggabungkan peringkat kandidat (hari
+  penuh: nilai, chg%, HAKA%, delta, zVwap, laju tape, divergensi, POC/value area)
+  dengan kolom tekanan jendela bergulir 1m/5m/15m (nilai jendela, H vs K, HAKA%,
+  arah, bukti). Baris = union peringkat nilai harian dan nilai jendela; live tiap
+  2 detik, sort per kolom, klik baris membuka panel detail. Saat kolom filter
+  diciutkan, kolom tengah & kanan bagi rata (50/50) supaya seluruh kolom Papan
+  muat; kalau layar lebih sempit, tabel scroll horizontal tanpa memotong angka.
+  Di mode riwayat menampilkan tanggal yang dipilih dari arsip (kolom jendela
+  kosong).
 - **Logout** — memutus sesi di server (bukan cuma sembunyikan tampilan), kembali ke
   layar QR.
 
-## 5. Yang sengaja belum dikerjakan
+## 5. Arah berikutnya: sinyal scalping & rekomendasi AI
+
+Keputusan arah (14 Agu 2026): tool ini naik kelas dari "melihat yang lagi rame" menjadi
+penjawab "apa yang layak di-scalp hari ini". Tiga komponen berikut saling menopang.
+
+### 5.1 Sinyal manual: HAKA rame di area penting
+
+Yang dicari mata scalper: transaksi beli agresif (HAKA) yang ramai, **khususnya saat
+harga berada di area penting**. Definisi awal "area penting" — akan dikalibrasi dari
+pemakaian nyata: sekitar VWAP, mendekati high/low hari ini, penutupan kemarin, dan
+angka bulat psikologis.
+
+Sudah ada: indikator intraday di panel detail (pita VWAP ±1σ/±2σ, opening range +
+status breakout, POC & value area 70%, divergensi harga–delta) dan **Papan** —
+satu tabel peringkat lintas emiten di kolom kanan (kandidat hari penuh + tekanan
+jendela), live tiap 2 detik.
+Belum ada: penandaan eksplisit "sedang di area penting" per baris (mis. "di value
+area", "breakout OR", "di +2σ") — angka-angkanya sudah tampil, simpulan visualnya
+belum diwarnai/diberi label.
+
+### 5.2 Perekaman OB2 untuk kandidat otomatis
+
+OB2 (orderbook) tetap **tidak** direkam untuk semua emiten — langganannya per simbol,
+tidak scalable ke ~686 emiten. Yang direkam adalah OB2 emiten **kandidat otomatis**:
+emiten yang lolos kriteria rame/HAKA hari itu, jumlahnya dibatasi (top N) supaya
+tetap ringan. Rekaman ini jadi bahan analisa AI (5.3) dan nantinya menambah sinyal
+manual (spread, offer wall).
+
+### 5.3 Tombol rekomendasi AI — Claude vs Kimi vs DeepSeek
+
+Satu tombol di dashboard. Saat diklik, server menjalankan **prompt yang sama dengan
+data yang sama** ke tiga model: Claude, Kimi, dan DeepSeek. Prompt-nya menganalisa
+running trade hari ini sampai detik klik (plus OB2 kandidat dari 5.2) dan diminta
+memilih emiten yang layak di-scalp hari itu beserta alasannya.
+
+- Hasil ketiga model ditampilkan **berdampingan** — penilaian akhir tetap di pengguna;
+  perbedaan pendapat antar-model justru informasi.
+- Pemanggilan **campuran, lewat CLI yang sudah terpasang** (terverifikasi POC 14 Agu 2026):
+  `claude -p` untuk Claude; `kimi -m moonshot-ai/kimi-k2.6 -p` untuk Kimi; dan
+  `kimi -m deepseek/deepseek-v4-pro -p` untuk DeepSeek — model dipilih EKSPLISIT
+  per argumen, tidak bergantung default config. Tidak ada API key tambahan yang
+  perlu dipegang server. Gagal satu model tidak membatalkan dua lainnya — panelnya
+  menampilkan statusnya apa adanya.
+- Output model tidak selalu JSON bersih (Claude suka bungkus markdown fence, CLI kimi
+  kasih awalan "• "), jadi runner WAJIB parse defensif: buang fence/awalan, ambil dari
+  `{` pertama sampai `}` terakhir, lalu validasi skema. POC tiga model sepakat
+  mengklasifikasikan 12/12 kandidat uji secara konsisten — payload ringkasan (5.4)
+  terbukti membawa sinyal yang cukup.
+- Hasil diarsip per hari, supaya bisa dievaluasi mundur ("kemarin AI bilang X,
+  jadinya bagaimana") — tanpa ini tidak ada cara mengkalibrasi prompt-nya.
+
+### 5.4 Batasan data untuk prompt
+
+Arsip livetrade ~25 MB/hari (ratusan ribu transaksi) **tidak mungkin dikirim mentah**
+ke satu model pun, apalagi tiga — context window tidak muat dan biayanya tidak masuk
+akal. Jadi server meringkas dulu menjadi payload analisa: peringkat emiten (nilai,
+HAKA/HAKI, burst), transaksi besar terpilih, delta kumulatif & footprint kandidat,
+dan OB2 kandidat. Payload inilah — bukan file mentah — yang dikirim identik ke tiga
+model. "Analisa semua isi file" pada requirement dibaca sebagai "semua sinyal penting
+dari file"; ringkasannya selalu bisa diperiksa ulang karena arsip mentahnya tetap ada.
+
+## 6. Yang sengaja belum dikerjakan
 
 - Sesi persisten lintas restart — kodenya sudah ada tapi IPOT menolak token lama
   (`#removeAuthToken`), jadi tiap restart tetap scan ulang. Sudah terbukti memakan korban:
   13 Agu 2026, 1,5 jam data sesi 1 hilang karena tidak ada yang scan QR setelah restart.
   Peringatannya kini ada, tapi akar masalahnya belum hilang.
+- Umur `appsession` yang masih sah untuk login belum diketahui — 28 menit terbukti bisa,
+  ~16 jam tidak. Untuk sekarang ditangani dengan menyambung ulang sebelum minta QR
+  (`STALE_LOGIN_MS` di `collector.ts`), bukan dengan memahami batas sebenarnya.
 - Arti nilai di dalam slot `[13]`/`[14]` (kemungkinan nomor order) — butuh arsip sehari
   penuh, jalankan `scanner/tools/analyze-lt.ts`.
-- Baseline relatif per emiten (deteksi anomali yang menyesuaikan diri terhadap
-  keramaian normal tiap saham, bukan ambang absolut).
-- OB2 (orderbook) untuk **spread** dan **offer wall** — per simbol, jadi tidak scalable
-  untuk memindai seluruh ~686 emiten sekaligus. Untuk sisi agresor OB2 tidak lagi
-  dibutuhkan.
+- **RVOL & baseline relatif** — volume sekarang dibanding normalnya jam segini, supaya
+  scanner menunjukkan yang paling *tidak biasa*, bukan sekadar yang paling ramai. Ini
+  butuh profil agregat harian (volume per emiten per 5 menit, ~1 MB/hari, retensi
+  60–90 hari) yang belum dibuat. Begitu ada, retensi arsip mentah bisa turun dari
+  30 hari ke ~7 hari karena tugasnya tinggal memulihkan konteks hari berjalan.
+- OB2 untuk **seluruh** emiten tetap tidak dikerjakan — langganan per simbol, tidak
+  scalable ke ~686. Untuk kandidat otomatis sudah masuk rencana di 5.2. Untuk sisi
+  agresor sendiri OB2 tidak lagi dibutuhkan.
 
-## 6. Referensi
+## 7. Referensi
 
 - [`scanner/README.md`](../scanner/README.md) — cara jalan (dev & deploy permanen),
   protokol IPOT, format pipe LT, setup domain lokal + HTTPS.

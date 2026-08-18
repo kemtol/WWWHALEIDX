@@ -1,27 +1,69 @@
-# Whale Scanner — MVP
+# Whale Scanner
 
 Login QR ke IPOT + running trade live di halaman lokal.
+
+## Dua proses: collector dan app
+
+Sejak Agu 2026 scanner berjalan sebagai **dua** proses, dan pembagiannya bukan kosmetik:
+
+| | Isi | Boleh direstart? |
+|---|---|---|
+| **collector** (`src/collector.ts`) | koneksi & sesi IPOT, tulis arsip | **Hindari saat bursa buka** |
+| **app** (`src/app.ts`) | UI, filter, burst, tekanan, panel detail, riwayat | Bebas, sesering apa pun |
+
+Alasannya: IPOT menolak token sesi yang dipulihkan (`#removeAuthToken`), jadi **setiap
+restart proses yang memegang koneksi menuntut scan QR ulang**. Selama UI dan koneksi hidup
+di proses yang sama, tiap perubahan UI memakan sesi — pada 13 Agu 2026 itu memakan ~3,5 jam
+data dalam tiga kejadian terpisah. Sekarang restart app tidak menyentuh sesi sama sekali,
+dan collector tetap menulis arsip walau app mati.
+
+Keduanya bicara lewat Unix socket (`$XDG_RUNTIME_DIR/whale-scanner.sock`, mode 0600,
+override dengan `WHALE_SOCKET`). Bingkainya JSONL; transaksi dikirim sebagai payload pipe
+**mentah** — lossless dan ~72 byte alih-alih ~400 kalau dikirim sebagai objek.
+
+```
+IPOT WebSocket ──> collector ──> logs/lt/YYYY-MM-DD.txt   (arsip, tahan restart app)
+                       │
+                       └─(unix socket)──> app ──> browser
+                                           │
+                                           └── baca arsip untuk riwayat & panel detail
+```
 
 ## Jalankan manual (dev)
 
 ```bash
 cd scanner
-npm install     # sekali saja
-npm start
+npm install          # sekali saja
+npm run collector    # terminal 1 — jarang perlu dimatikan
+npm run app          # terminal 2 — bebas restart
 ```
 
-1. Buka <http://127.0.0.1:3000> — halaman QR tampil penuh (juga dicetak di terminal sebagai cadangan).
-2. Di HP: **IPOT → Member Area → Security → Login to IPOT Web** → scan QR (berlaku 60 detik).
+1. Buka <http://127.0.0.1:3000> (atau <https://whale.scanner.local> kalau TLS diset).
+2. Klik **Tampilkan QR**. Di HP: **IPOT → Member Area → Security → Login to IPOT Web** →
+   scan QR (berlaku 60 detik). QR juga dicetak di terminal collector sebagai cadangan
+   kalau belum ada app yang tersambung.
 3. Login berhasil → halaman otomatis pindah ke dashboard, running trade mengalir.
-4. Tombol **Logout** di dashboard mengembalikan ke layar QR (memutus sesi di server, bukan cuma sembunyikan tampilan).
+4. Tombol **Logout** memutus sesi di collector, bukan cuma menyembunyikan tampilan.
 
-Tombol terminal saat berjalan: `r` QR baru · `s` subscribe manual · `q` keluar.
+`npm run dev:app` menjalankan app dengan reload otomatis — aman, karena collector tidak
+ikut terpengaruh. Tombol terminal collector: `r` QR baru · `s` subscribe manual · `q` keluar.
+
+Urutan start tidak penting: app menyambung ulang sendiri sampai collector ada.
 
 ## Jalan otomatis + domain lokal (`https://whale.scanner.local`)
 
-Server jalan sebagai systemd `--user` service (`~/.config/systemd/user/whale-scanner.service`),
-auto-start setiap login/restart, auto-restart kalau crash. Diakses lewat domain lokal
-dengan HTTPS asli (bukan "Not Secure") pakai sertifikat [mkcert](https://github.com/FiloSottile/mkcert).
+Jalan sebagai **dua** systemd `--user` service di `~/.config/systemd/user/`:
+`whale-collector.service` dan `whale-app.service` (yang lama, `whale-scanner.service`,
+sudah di-disable). Auto-start setiap login/restart, auto-restart kalau crash. Diakses lewat
+domain lokal dengan HTTPS asli (bukan "Not Secure") pakai sertifikat
+[mkcert](https://github.com/FiloSottile/mkcert).
+
+Yang perlu diingat sehari-hari:
+
+```bash
+systemctl --user restart whale-app.service        # aman kapan saja
+systemctl --user restart whale-collector.service  # memutus sesi → wajib scan QR lagi
+```
 
 **Setup sekali saja** (sudah dikerjakan di komputer ini, dicatat untuk referensi/reinstall):
 
@@ -42,9 +84,9 @@ sudo setcap 'cap_net_bind_service=+ep' "$(readlink -f "$(which node)")"
 # 4. Domain lokal menunjuk ke komputer sendiri (BUTUH sudo, satu kali)
 echo "127.0.0.1 whale.scanner.local" | sudo tee -a /etc/hosts
 
-# 5. Service systemd
+# 5. Service systemd (dua-duanya)
 systemctl --user daemon-reload
-systemctl --user enable --now whale-scanner.service
+systemctl --user enable --now whale-collector.service whale-app.service
 ```
 
 Setelah itu: buka <https://whale.scanner.local> — kalau Chrome/Firefox baru saja di-install
@@ -52,25 +94,33 @@ ulang CA-nya, restart browser dulu supaya sertifikatnya dipercaya.
 
 Cek status / log:
 ```bash
-systemctl --user status whale-scanner.service
-journalctl --user -u whale-scanner.service -f
+systemctl --user status whale-collector.service whale-app.service
+journalctl --user -u whale-collector.service -f   # login, sesi, arsip
+journalctl --user -u whale-app.service -f         # UI, filter
 ```
 
 Sertifikat `certs/*.pem` berlaku ~2 tahun (lihat tanggal exact: `openssl x509 -in certs/whale.scanner.local.pem -noout -enddate`),
-tidak di-commit ke git (private key). Kalau expired, ulangi langkah 2 lalu `systemctl --user restart whale-scanner.service`.
+tidak di-commit ke git (private key). Kalau expired, ulangi langkah 2 lalu `systemctl --user restart whale-app.service` (app yang memegang TLS, jadi collector tidak perlu disentuh).
 
 ## Struktur
 
 ```
+src/collector.ts  ENTRY collector — sesi IPOT, reconnect, arsip, peringatan login
+src/app.ts        ENTRY app — UI, filter, analitik, /api/*
+src/bus.ts        saluran unix socket antara keduanya
 src/ipot.ts     koneksi WebSocket IPOT, login QR, subscribe, parse pipe
 src/filters.ts  filter transaksi, deteksi burst, tekanan HAKA/HAKI
 src/archive.ts  arsip transaksi harian (logs/lt/), rotasi + retensi
 src/history.ts  query rentang waktu dari arsip + ringkasan per emiten
+src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
+src/market.ts   papan pasar semua emiten + kandidat (Papan & payload AI)
+src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
-src/index.ts    orkestrasi (reconnect, watchdog, sesi, logout, arsip)
 public/index.html  halaman login (QR) + dashboard 3 kolom + mode riwayat
 tools/analyze-lt.ts   bedah field feed dari arsip satu hari
 tools/backfill-lt.ts  pemulihan: tarik payload LT lama dari frames.jsonl
+tools/build-payload.ts  payload analisa untuk rekomendasi AI (templat prompts/scalp.md)
+tools/replay.ts         uji UI: putar ulang arsip lewat bus, tanpa menyentuh IPOT
 logs/lt/YYYY-MM-DD.txt  arsip transaksi, satu payload mentah per baris
 logs/frames.jsonl       frame protokol NON-LT, dibatasi ~20MB (auto-rotasi)
 ```
@@ -78,8 +128,28 @@ logs/frames.jsonl       frame protokol NON-LT, dibatasi ~20MB (auto-rotasi)
 ## Arsip harian & riwayat
 
 Setiap transaksi ditulis apa adanya ke `logs/lt/YYYY-MM-DD.txt` — satu payload pipe
-per baris, sebelum disaring filter apa pun. Sekitar **72 byte per transaksi, ~25 MB
-per hari bursa penuh**. Retensi default 30 hari (`ARCHIVE_DAYS`).
+per baris, sebelum disaring filter apa pun. **73 byte per transaksi**, dan pada hari
+bursa yang mengalir penuh laju terukurnya **0,23 MB/menit (3.224 transaksi/menit)** —
+sekitar **77 MB per hari**. Retensi default 30 hari (`ARCHIVE_DAYS`).
+
+> Angka lama di dokumen ini pernah menyebut ~25 MB/hari. Itu meleset tiga kali lipat:
+> perkiraannya bersandar pada arsip 12 Agu 2026 yang belakangan terbukti berlubang besar
+> dan hanya mencakup sore yang lebih sepi. 14 Agu 2026 adalah pengukuran pertama dari
+> perekaman yang benar-benar mengalir.
+
+**Hari yang sudah lewat dipadatkan** jadi `logs/lt/YYYY-MM-DD.txt.gz`. Payload pipe
+sangat berulang, jadi gzip memangkasnya **~5,4×** (terukur: 5,2 MB → 0,9 MB). Hari
+berjalan tidak pernah dipadatkan karena file-nya masih di-append. Pemadatan jalan saat
+collector start dan saat pergantian hari; `readDay`, `sizeOf`, dan `startTime` mengenali
+kedua bentuk, jadi riwayat dan panel detail bekerja sama saja atas arsip padat.
+
+Karena membaca arsip padat menuntut membuka seluruh file, jam transaksi pertama per
+tanggal di-cache — panel detail memintanya tiap kali dibuka, sementara hari lampau tidak
+berubah lagi.
+
+Dengan disk yang sudah 91% penuh, retensi 30 hari berarti ~2,3 GB mentah atau ~0,43 GB
+padat. Untuk fokus scalping intraday, 7 hari sebenarnya cukup — tugas arsip tinggal
+memulihkan konteks hari berjalan dan menjadi bahan riset protokol.
 
 Frame LT sengaja **tidak lagi** masuk `frames.jsonl`: jumlahnya menenggelamkan frame
 protokol lain sampai file itu memotong diri sendiri di 20 MB. Sekarang frames.jsonl
@@ -231,11 +301,252 @@ Yang masih berlaku dari keputusan lama: arah transaksi yang tidak diketahui **ti
 ditebak**. Dulu pewarisan arah dari transaksi sebelumnya terbukti membalik kesimpulan
 pada 28% emiten, dan prinsip itu tidak berubah — hanya sumber datanya yang jadi lebih baik.
 
+## Papan (kandidat + tekanan, satu tabel)
+
+Kolom kanan menampilkan SATU tabel peringkat yang menggabungkan dua sisi:
+
+- **Kandidat (hari penuh)** — indikator yang **sama persis dengan payload analisa
+  AI** (yang dibaca manusia di UI dan yang dianalisa model tidak boleh berbeda;
+  keduanya dari `src/market.ts`): harga, chg%, delta kumulatif, HAKA%, posisi vs
+  VWAP (zσ), laju tape, divergensi 15m, nilai — plus POC/value area dan footprint
+  3 level teramai di tooltip baris.
+- **Tekanan (jendela 1m/5m/15m)** — nilai jendela, bar H vs K, HAKA% jendela, arah
+  (BELI/JUAL/imbang), bukti. Ambang verdict sama dengan panel tekanan lama.
+
+Baris = **union** peringkat nilai harian dan nilai jendela: emiten yang ramai pagi
+tapi sepi sekarang tetap tampil, dan yang baru memanas sekarang ikut muncul walau
+nilai hariannya kecil. Klik judul kolom untuk mengurutkan; klik kode emiten membuka
+panel detail. Saat kolom filter diciutkan (burger), kolom tengah & kanan **bagi rata
+50/50** sehingga seluruh kolom Papan muat; kalau layar lebih sempit, tabel scroll
+horizontal tanpa memotong angka.
+
+- **Live**: diperbarui tiap 2 detik — harian dari papan pasar di memori
+  (`MarketBoard`), jendela dari `Scanner.pressureAll()`.
+- **Mode riwayat**: memuat tanggal yang dipilih dari arsip (butuh beberapa detik;
+  tombol ↻ memuat ulang). Kolom jendela kosong — tekanan jendela hanya konsep live.
+
+```
+GET /api/candidates?n=15[&date=YYYY-MM-DD]
+                   → { date, live, recordedFrom, rows[] } — tiap baris memuat field
+                     `win` (nilai/hakaPct/bukti jendela) untuk hari berjalan, null
+                     untuk tanggal lampau
+```
+
+## Detail per emiten (order flow)
+
+Klik kode emiten di tabel mana pun → panel detail. Ini jembatan dari "emiten mana yang
+rame" ke "apa yang sebenarnya terjadi di emiten ini" — panel lain semuanya lintas-emiten.
+
+Panelnya setinggi layar dan terbagi tiga kolom, dipisah menurut sifat isinya:
+
+| Kolom | Isi |
+|---|---|
+| **kiri** | keadaan apa adanya — harga, perubahan, VWAP, vs VWAP, high/low, nilai, transaksi, laju tape, plus nilai lelang & blok NG/TN yang tidak masuk hitungan |
+| **tengah** | grafik harga + delta kumulatif, dan divergensi (ia membaca grafik itu sendiri) |
+| **kanan** | yang diturunkan — tekanan HAKA/HAKI, POC, value area, pita ±1σ, posisi terhadap VWAP, opening range, footprint |
+
+Tiap kolom scroll sendiri supaya footprint yang panjang tidak mendorong grafik keluar
+layar, dan tinggi grafik mengikuti tinggi viewport.
+
+- **Delta kumulatif** per menit: nilai beli agresif dikurangi jual agresif, ditumpuk sejak
+  pembukaan. Menjawab yang tidak bisa dijawab panel tekanan: apakah tekanan sedang
+  *menguat atau melemah*, bukan cuma posisinya sekarang.
+- **Footprint**: volume beli vs jual agresif **per level harga**. Memperlihatkan di harga
+  mana agresi menumpuk — tidak terlihat dari total volume.
+- VWAP, high/low, dan blok NG/TN dipisah dari hitungan (negosiasi tidak punya agresor).
+
+### Cara membaca grafiknya
+
+Dua baris sejajar berbagi sumbu waktu — **atas garis harga, bawah batang delta kumulatif**.
+Yang dicari adalah saat keduanya **tidak sejalan**:
+
+| Garis harga | Batang delta | Artinya |
+|---|---|---|
+| naik | ikut naik | kenaikan didukung pembeli agresif |
+| naik | datar / turun | tenaga beli habis — kenaikan rapuh |
+| turun | ikut turun | penurunan didorong penjual agresif |
+| turun | datar / naik | penjual habis — penurunan rapuh |
+
+Contoh nyata (IRSX, 14 Agu 2026): harga merangkak naik ke 374 sementara delta menanjak
+tajam — sampai di situ sehat. Lalu delta **mendatar** dan harga langsung balik ke 368 dan
+menggantung. Pembeli agresif berhenti, harga tidak punya penopang lagi.
+
+Skala delta mengikuti data, bukan dipaksa simetris: kalau seluruh delta positif, garis nol
+jatuh di dasar dan batang memakai seluruh tinggi. Versi sebelumnya selalu membagi 50/50
+dan menumpuk garis harga di atas batang dengan skala berbeda — hasilnya garis harga jatuh
+di paruh bawah yang kosong dan terbaca seolah bagian dari delta negatif.
+
+Panel ini menutup hampir seluruh layar, dan menutupnya **tidak memuat ulang apa pun**:
+tabel live tetap mengalir di belakang selama panel terbuka.
+
+### Indikator intraday di panel ini
+
+**Divergensi harga vs delta.** Harga naik sementara cumulative delta turun berarti
+kenaikan itu tidak didukung pembeli agresif — pertanda tenaga habis, dan kebalikannya
+untuk bullish. Dihitung pada jendela 15 menit bergulir dengan membandingkan awal dan
+akhir jendela, **bukan** deteksi swing: swing menuntut parameter yang harus
+dicocok-cocokkan dan hasilnya sulit dipertanggungjawabkan. Yang di sini bisa dibaca apa
+adanya — *"15 menit terakhir harga +1,59% tapi delta −3,65 M"*.
+
+Ada dua penjaga supaya tidak berisik: gerak harga minimal 0,15% dan ketidakseimbangan
+minimal 5% dari nilai yang diperdagangkan di jendela itu. Tanpa keduanya hampir setiap
+emiten akan selalu "divergen", karena harga dan delta jarang bergerak persis sejalan.
+
+Grafik delta juga menampilkan **garis harga** di atas batangnya. Skalanya sengaja bebas
+dan tanpa sumbu — yang dicari bentuknya, bukan nilainya: garis naik sementara batang
+menyusut adalah divergensi yang langsung terlihat mata.
+
+**POC & value area.** Point of control = harga dengan volume terbesar hari ini; value
+area = rentang yang memuat ~70% volume, dibangun dari POC melebar ke sisi yang levelnya
+lebih besar. Keduanya dari footprint (papan RG), jadi ini support/resistance berdasar
+volume nyata, bukan garis tarikan. Ditandai di tabel footprint dan di header. `coverage`
+ikut dilaporkan karena bisa meleset dari 0,7 saat level harganya sedikit — lebih baik
+terlihat daripada dibulatkan diam-diam.
+
+**Pita VWAP (±1σ, ±2σ).** Acuan target dan stop yang paling umum dipakai scalper. Pusatnya
+VWAP dari feed — angka yang dilihat semua pelaku pasar — sementara simpangan bakunya
+terpaksa dihitung sendiri dari transaksi yang terlihat, karena feed tidak mengirimkannya.
+Dipakai Welford tertimbang volume, bukan Σ(q·p²): pada emiten harga tinggi yang ramai,
+jumlah kuadrat itu bisa menyentuh batas presisi `Number` dan variansnya jadi kacau.
+
+`z` menunjukkan posisi harga terhadap VWAP dalam satuan σ, dan hanya diberi warna kalau
+sudah melewati 1σ supaya gerak kecil tidak terlihat berarti. Garis VWAP juga digambar
+putus-putus di grafik harga, dan ikut masuk domain skala — tanpa itu, saat harga menjauh
+VWAP-nya keluar kotak, padahal justru saat itulah ia paling penting.
+
+Tooltipnya menyebut **VWAP feed vs VWAP hitungan sendiri**. Selisih keduanya adalah ukuran
+langsung seberapa parsial data kita: kalau berdekatan, pitanya bisa dipercaya. Contoh nyata
+14 Agu 2026 (perekaman mulai 09:44, bukan 09:00) — IRSX feed 365 vs hitungan sendiri 367,48.
+
+**Laju tape.** Transaksi per detik dalam 60 detik terakhir, dibanding rata-rata emiten itu
+sepanjang hari ini. **Bukan RVOL**: pembandingnya hari ini sendiri, bukan perilaku normal
+lintas hari — untuk itu perlu profil agregat harian yang belum dibuat. Tetap berguna karena
+lonjakan laju sering mendahului pergerakan harga; ADRO sempat tercatat 3,89× rata-ratanya
+sendiri saat harga menembus ke atas VWAP.
+
+Baseline-nya memakai jumlah menit yang punya transaksi, bukan rentang jam — emiten yang
+sepi berjam-jam tidak seharusnya terlihat "meledak" hanya karena pembaginya besar.
+
+**Opening range.** High/low 09:00–09:29, dengan status apakah harga terakhir menembus ke
+atas, ke bawah, atau masih di dalam. **Hanya sah kalau perekaman mulai dari pembukaan** —
+kalau `recordedFrom` lewat dari 09:01, angkanya tetap ditampilkan tapi diredupkan dan
+diberi tanda `(?)`, karena sebagian rentangnya tidak pernah terlihat.
+
+Beberapa hal yang sengaja dibuat eksplisit di panel ini:
+
+- Nilai **tanpa sisi agresor** dan **blok NG/TN** disebutkan terang-terangan di header,
+  supaya tidak terlihat seolah seluruh nilai emiten sudah terwakili hitungan tekanan.
+- Level footprint yang isinya hanya lelang penutupan diberi label `lelang N lot`, bukan
+  dibiarkan tampak sebagai baris kosong — justru di level itu harga penutupan terbentuk.
+- Judul menyebut tanggal kalau yang dilihat bukan hari berjalan.
+
+Cara kerjanya: saat panel dibuka, server mengisi dari arsip hari itu (`backfill`) supaya
+lengkap **sejak pembukaan**, lalu memperbaruinya dari feed live. Tanpa backfill, panel
+baru terisi dari detik kamu klik — padahal yang menentukan keputusan justru apa yang
+sudah terjadi sejak pagi.
+
+Hanya emiten yang sedang dibuka yang dilacak, dan feed live hanya masuk kalau tanggal
+yang ditampilkan memang hari berjalan — kalau tidak, membuka detail tanggal lampau akan
+tercampur transaksi hari ini. Pola "pantau beberapa emiten" ini yang nanti dipakai OB2,
+yang memang per simbol dan tidak scalable ke semua emiten.
+
+```
+GET /api/symbol?code=BBCA[&date=YYYY-MM-DD][&reload=1]
+GET /api/unwatch?code=BBCA        (dipanggil halaman saat panel ditutup)
+```
+
+## Kelengkapan data — apa yang rusak kalau perekaman bolong
+
+Angka kumulatif hanya benar kalau arsip hari itu mulai dari pembukaan. Kalau scanner baru
+login jam 11:45, delta kumulatif sebenarnya "sejak 11:45", bukan sejak 09:00 — dan itu
+**salah**, bukan sekadar kurang lengkap. Ada asimetri yang penting diketahui:
+
+| Ikut rusak kalau bolong | Tetap benar |
+|---|---|
+| delta kumulatif, footprint | **VWAP** (`[17]`) |
+| high/low, total volume & nilai | harga, %, tick |
+| ringkasan riwayat per emiten | sisi agresor per transaksi |
+
+VWAP dihitung server IPOT sejak pembukaan dan dikirim utuh di **setiap** transaksi, jadi
+ia benar sejak transaksi pertama yang kita terima, seberapa pun telatnya. Itu sebabnya
+VWAP jadi jangkar yang bisa dipercaya walau arsipnya bolong.
+
+Panel detail menyebutkan ini sendiri: judul grafiknya berbunyi "sejak HH:MM" (bukan
+"sejak pembukaan"), dan kalau perekaman mulai setelah 09:01 muncul pil merah di header
+modal, di samping kode emiten — sengaja di sana dan bukan di atas grafik, karena di situ
+ia mendorong grafik turun setiap kali panel dibuka. Kalimat penjelasnya ada di tooltip.
+Server mengirim `recordedFrom` — jam transaksi pertama di arsip hari itu.
+
+**Mengukur lubang.** Field `[5]` (nomor urut transaksi) naik terus, jadi lompatan di sana
+menandakan transaksi yang tidak terekam:
+
+```bash
+python3 - <<'EOF'
+rows=[l.split('|') for l in open('logs/lt/2026-08-13.txt') if l.strip()]
+seq=[int(r[5]) for r in rows]
+gaps=[b-a-1 for a,b in zip(seq,seq[1:]) if b-a>1]
+print(f'{len(rows):,} transaksi · rentang seq {max(seq)-min(seq):,} · {sum(gaps):,} nomor terlewat')
+EOF
+```
+
+Arsip `2026-08-12` (hasil pemulihan dari `frames.jsonl` yang dibatasi 20 MB) punya 108.374
+nomor terlewat, termasuk lubang 10 menit penuh di 15:50–15:59 — contoh nyata kenapa
+indikator ini perlu. Catatan: belum dipastikan apakah semua nomor yang terlewat itu benar
+transaksi hilang, atau seq global juga mencakup event yang tidak kita subscribe. Butuh satu
+hari penuh untuk memastikan.
+
+**Penyebab lubang, urut dari yang paling sering:**
+
+1. Belum scan QR saat bursa buka (lihat peringatan di bawah).
+2. **Restart collector** — memutus sesi login, dan token lama ditolak IPOT, jadi wajib scan
+   ulang. Ini penyebab utama pada 13 Agu 2026 (tiga kejadian, ~3,5 jam), dan alasan
+   collector dipisah dari app. Restart **app** tidak berpengaruh — sudah diuji: PID
+   collector tetap sama dan ia hanya mencatat `app tersambung: 0` lalu `1`.
+3. Reconnect di tengah sesi (watchdog) — biasanya singkat.
+
+Setelah app restart, jendela burst & tekanan diisi ulang dari arsip (`warmup` di `app.ts`)
+supaya panel tekanan tidak kosong beberapa menit. Statistik "masuk/lolos" sengaja tidak
+ikut diisi — itu menghitung sesi app ini, bukan sejarah arsip.
+
+## QR di-scan tapi tidak pernah login
+
+Gejalanya membingungkan: di HP muncul konfirmasi berhasil, tapi scanner tetap di layar QR
+dan tidak ada satu pun frame balasan dari IPOT — bukan penolakan, bukan error, **diam
+total**. Terjadi 14 Agu 2026.
+
+Penyebabnya: **`appsession` yang basi**, bukan socket yang mati. Collector waktu itu sudah
+jalan ~16 jam tanpa login; koneksi WebSocket-nya masih hidup dan masih menerima notifikasi
+IDX seperti biasa, tapi token `appsession` yang dipakai saat menyambung sudah tidak sah
+untuk operasi login. Begitu collector di-restart (yang berarti `fetchAppSession()` baru),
+scan pertama langsung berhasil.
+
+Batas persisnya tidak diketahui — yang terbukti hanya: **28 menit masih bisa, ~16 jam
+tidak**. Karena itu `collector.ts` sekarang menyambung ulang lebih dulu kalau diminta QR
+sementara koneksinya sudah lebih tua dari 5 menit dan belum login (`STALE_LOGIN_MS`).
+Ambangnya sengaja jauh lebih ketat daripada perlu: reconnect makan 2–3 detik, sementara
+gagal login diam-diam memakan berjam-jam data.
+
+Kalau gejala ini muncul lagi, cek dua hal sebelum menduga yang lain:
+
+```bash
+# 1. Umur proses collector — makin tua makin curiga
+ps -o etime= -p $(systemctl --user show whale-collector.service -p MainPID --value)
+
+# 2. Frame yang benar-benar datang setelah QR dikirim (LT tidak ikut di sini,
+#    jadi frame login pasti terlihat kalau memang ada)
+tail -5 logs/frames.jsonl
+```
+
 ## Peringatan belum login
 
 Bursa buka tapi scanner tidak login berarti `subscribe LT` tidak pernah terkirim, jadi
-tidak ada transaksi yang terekam — dan itu dulu terjadi tanpa tanda apa pun. Sekarang,
-kalau bursa buka dan scanner belum login lebih dari 2 menit:
+tidak ada transaksi yang terekam — dan itu dulu terjadi tanpa tanda apa pun.
+
+**Pre-opening (08:40–09:00):** diingatkan sekali per hari, sebelum bursa buka. Ini yang
+mencegah lubang di awal hari — begitu 09:00 lewat tanpa login, menit-menit pertama hilang
+dan tidak bisa diambil kembali dari mana pun.
+
+**Setelah bursa buka**, kalau belum login lebih dari 2 menit:
 
 - peringatan mencolok di journal, diulang tiap 10 menit dengan hitungan menit yang hilang
 - **notifikasi desktop** (`notify-send`, urgency critical) — satu-satunya jalur yang sampai

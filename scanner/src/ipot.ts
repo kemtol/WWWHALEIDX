@@ -152,6 +152,17 @@ export function marketLikelyOpen(d = new Date()): boolean {
   return inS1 || inS2;
 }
 
+/** Sudah pre-opening, tapi sesi 1 belum mulai (08:40–09:00 WIB pada hari bursa).
+ *  Dipakai mengingatkan login SEBELUM bursa buka: kalau baru diingatkan setelah
+ *  09:00, menit-menit pertama sudah pasti hilang dan tidak bisa diambil kembali. */
+export function marketPreOpening(d = new Date()): boolean {
+  const wib = new Date(d.getTime() + (7 * 60 + d.getTimezoneOffset()) * 60_000);
+  const day = wib.getDay();
+  if (day === 0 || day === 6) return false;
+  const mins = wib.getHours() * 60 + wib.getMinutes();
+  return mins >= 8 * 60 + 40 && mins < 9 * 60;
+}
+
 type Events = {
   open: [boolean];        // true = sesi sudah terautentikasi lewat token tersimpan
   qr: [QrInfo];
@@ -214,6 +225,13 @@ export class IpotClient extends EventEmitter<Events> {
   // ---- koneksi --------------------------------------------------------------
 
   /** Menyambung dan handshake. Mengembalikan status autentikasi dari server. */
+  /** Kapan koneksi yang sekarang dibuat (epoch ms), 0 kalau belum pernah.
+   *  Dipakai menakar apakah `appsession`-nya masih cukup segar untuk login QR. */
+  connectedAt = 0;
+
+  /** Socket terbuka dan belum dinyatakan mati. */
+  get connected() { return this.ws !== null && !this.dead; }
+
   async connect(): Promise<boolean> {
     this.dead = false;
     this.subscribed = false;
@@ -233,6 +251,7 @@ export class IpotClient extends EventEmitter<Events> {
 
     this.lastMessageAt = Date.now();
     this.lastTradeAt = Date.now();
+    this.connectedAt = Date.now();
     ws.on('message', (buf) => this.onMessage(buf.toString()));
     ws.on('close', (code) => this.die(`ditutup server (code ${code})`));
     ws.on('error', (err) => this.die(`error: ${err.message}`));

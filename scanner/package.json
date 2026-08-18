@@ -5,8 +5,10 @@
   "type": "module",
   "description": "IDX Whale Scanner - MVP: login QR IPOT + running trade live",
   "scripts": {
-    "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts"
+    "collector": "tsx src/collector.ts",
+    "app": "tsx src/app.ts",
+    "dev:app": "tsx watch src/app.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
