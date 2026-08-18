@@ -384,6 +384,15 @@ model lain atas data yang sama, dan jadi jalan keluar kalau panggilan gagal (sal
 model sibuk): server tetap mengirim `prompt` di balasan error, jadi tidak pernah buntu
 total.
 
+Yang disalin **berdiri sendiri**, bukan cuma giliran terakhir. Lewat API konteks dikirim
+sebagai `messages[]` terpisah, tapi chat AI lain cuma menerima satu kotak teks —
+sementara template lanjutan berbunyi *"Di atas ada analisa dan pembicaraan kita
+sebelumnya hari ini"*. Tanpa perataan, kalimat itu bohong: modelnya diberi tahu ada
+konteks yang tidak pernah ikut, lalu diminta menjelaskan pick yang hilang tanpa tahu
+pick sebelumnya apa. `flattenTranscript()` meratakan percakapan sehari jadi satu teks
+bertanda peran (`----- [n] SAYA / KAMU -----`), diikuti `===== GILIRAN SEKARANG =====`.
+Terukur: 8.445 → 34.243 karakter untuk hari dengan 2 analisa + 3 tanya.
+
 **Menunggu 2–3 menit itu normal**, dan itu menuntut UI-nya jujur. Terukur: 103–167 detik
 untuk 19–20 kandidat di `deepseek-v4-pro`. Batasnya 300 detik. Maka:
 
@@ -407,7 +416,8 @@ Cek sisa saldo:
 Biaya sekali panggil di bawah $0,005 — saldo $2,51 tidak bergerak setelah beberapa kali.
 
 ```
-GET /api/prompt[?date=YYYY-MM-DD][&n=15]  → { date, count, prompt } | { error }
+GET /api/prompt[?date=YYYY-MM-DD][&n=15]  → { date, count, lanjutan, prompt } | { error }
+                                            `prompt` = transkrip sehari + giliran baru
 GET /api/ai    [?date=YYYY-MM-DD][&n=15]  → { id, date, count, result, usage, prompt, tookMs }
                                           | { error, prompt }
 ```

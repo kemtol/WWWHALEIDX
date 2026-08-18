@@ -17,9 +17,9 @@ Dua cara tool ini menjawabnya (detail rencananya di bagian 5):
    yang terjadi saat harga berada di **area penting** (VWAP, high/low hari ini,
    penutupan kemarin, angka bulat psikologis), dipisah dari derasnya seluruh transaksi
    bursa lewat filter nilai/burst/papan/jam.
-2. **Rekomendasi AI** — satu tombol yang mengadu Claude vs Kimi vs DeepSeek dengan
-   prompt identik untuk menganalisa running trade + OB2 hari ini dan memilih emiten
-   yang layak di-scalp.
+2. **Rekomendasi AI** — satu tombol yang mengirim kandidat hari itu ke model dan
+   meminta pilihan emiten layak scalp beserta entry/invalidasi/target. Sudah jalan
+   (lihat 5.3); rencana awal mengadu tiga model berubah — alasannya di sana.
 
 Batas yang tidak berubah sejak awal: ini **bukan sistem alert otomatis dan bukan
 auto-trading**. Tool menyiapkan kandidat beserta buktinya; keputusan eksekusi tetap
@@ -89,8 +89,14 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
 - **Peringatan belum login** — bursa buka tapi scanner tidak login = data hilang diam-diam.
   Sekarang ada notifikasi desktop, peringatan journal berkala, dan banner di layar QR
   berisi hitungan menit yang tidak terekam.
-- **Arsip harian & riwayat** — setiap transaksi disimpan mentah per hari (~25 MB/hari
-  bursa), bisa dilihat mundur per rentang jam beserta peringkat emiten teramai.
+- **Arsip harian & riwayat** — setiap transaksi disimpan mentah per hari (~77 MB pada
+  hari yang mengalir penuh; hari lampau dipadatkan gzip ~5,4×), bisa dilihat mundur per
+  rentang jam beserta peringkat emiten teramai.
+- **Analisa AI + percakapan sehari** — tombol AI di papan mengirim kandidat yang sedang
+  tampil ke DeepSeek, hasilnya dirender jadi pick dengan entry/invalidasi/target. **Satu
+  hari = satu benang percakapan**: klik berikutnya menyambung, bukan memulai baru, jadi
+  model menjelaskan pick yang dikeluarkan alih-alih menghilangkannya diam-diam. Ada
+  kotak chat untuk bertanya lanjutan, dan tombol Riwayat AI untuk membuka hari lampau.
 - **Detail per emiten** — klik kode emiten: delta kumulatif per menit (tekanan menguat
   atau melemah) dan footprint beli/jual agresif per level harga, lengkap sejak pembukaan.
   Jembatan dari "emiten mana yang rame" ke keputusan di satu emiten.
@@ -111,10 +117,11 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
 - **Logout** — memutus sesi di server (bukan cuma sembunyikan tampilan), kembali ke
   layar QR.
 
-## 5. Arah berikutnya: sinyal scalping & rekomendasi AI
+## 5. Sinyal scalping & rekomendasi AI
 
 Keputusan arah (14 Agu 2026): tool ini naik kelas dari "melihat yang lagi rame" menjadi
 penjawab "apa yang layak di-scalp hari ini". Tiga komponen berikut saling menopang.
+Status per 18 Agu 2026: **5.3 dan 5.4 sudah jalan**, 5.1 sebagian, 5.2 belum.
 
 ### 5.1 Sinyal manual: HAKA rame di area penting
 
@@ -139,38 +146,48 @@ emiten yang lolos kriteria rame/HAKA hari itu, jumlahnya dibatasi (top N) supaya
 tetap ringan. Rekaman ini jadi bahan analisa AI (5.3) dan nantinya menambah sinyal
 manual (spread, offer wall).
 
-### 5.3 Tombol rekomendasi AI — Claude vs Kimi vs DeepSeek
+### 5.3 Tombol rekomendasi AI — SUDAH JALAN (18 Agu 2026)
 
-Satu tombol di dashboard. Saat diklik, server menjalankan **prompt yang sama dengan
-data yang sama** ke tiga model: Claude, Kimi, dan DeepSeek. Prompt-nya menganalisa
-running trade hari ini sampai detik klik (plus OB2 kandidat dari 5.2) dan diminta
-memilih emiten yang layak di-scalp hari itu beserta alasannya.
+Terpasang, tapi **berbeda dari rencana di atas**. Yang dibangun: satu model
+(**DeepSeek `deepseek-v4-pro`**, lewat API dengan kunci di `scanner/.env`), bukan tiga
+model berdampingan lewat CLI.
 
-- Hasil ketiga model ditampilkan **berdampingan** — penilaian akhir tetap di pengguna;
-  perbedaan pendapat antar-model justru informasi.
-- Pemanggilan **campuran, lewat CLI yang sudah terpasang** (terverifikasi POC 14 Agu 2026):
-  `claude -p` untuk Claude; `kimi -m moonshot-ai/kimi-k2.6 -p` untuk Kimi; dan
-  `kimi -m deepseek/deepseek-v4-pro -p` untuk DeepSeek — model dipilih EKSPLISIT
-  per argumen, tidak bergantung default config. Tidak ada API key tambahan yang
-  perlu dipegang server. Gagal satu model tidak membatalkan dua lainnya — panelnya
-  menampilkan statusnya apa adanya.
-- Output model tidak selalu JSON bersih (Claude suka bungkus markdown fence, CLI kimi
-  kasih awalan "• "), jadi runner WAJIB parse defensif: buang fence/awalan, ambil dari
-  `{` pertama sampai `}` terakhir, lalu validasi skema. POC tiga model sepakat
-  mengklasifikasikan 12/12 kandidat uji secara konsisten — payload ringkasan (5.4)
-  terbukti membawa sinyal yang cukup.
-- Hasil diarsip per hari, supaya bisa dievaluasi mundur ("kemarin AI bilang X,
-  jadinya bagaimana") — tanpa ini tidak ada cara mengkalibrasi prompt-nya.
+Kenapa berubah: pengguna menyediakan kunci API DeepSeek, dan memanggil satu API
+langsung jauh lebih sederhana daripada mengorkestrasi tiga proses CLI dengan parse
+defensif atas tiga bentuk output yang berbeda-beda. Perbandingan antar-model tidak
+hilang — tombol **Salin prompt** memberi transkrip lengkap yang bisa ditempel ke chat
+model mana pun untuk dibandingkan manual. Kalau nanti perbandingan otomatis benar-benar
+dibutuhkan, `src/ai.ts` sudah terpisah rapi dan tinggal ditambah pemanggil kedua.
+
+Yang justru berkembang melampaui rencana: **percakapan berlanjut per hari**. Analisa
+bukan hasil sekali jadi, melainkan pesan pertama sebuah benang. Sebabnya nyata: kalau
+tiap klik memulai percakapan baru, pick yang hilang siang hari lenyap tanpa penjelasan
+dan pembacanya bertanya-tanya. Sekarang analisa lanjutan memakai template khusus
+(`prompts/scalp-lanjut.md`) yang mewajibkan menjelaskan apa yang dikeluarkan dan kenapa.
+Terverifikasi ke model sungguhan — ia membandingkan angka lama dengan angka baru
+("deltaM turun dari +7,5 menjadi +3,2"), bukan sekadar mengingat kesimpulan.
+
+Hasil diarsip per hari (`logs/ai/`), lengkap dengan payload tiap analisa, supaya bisa
+dievaluasi mundur — tanpa itu tidak ada cara mengkalibrasi prompt-nya.
+
+Detail lengkap (skema balasan, normalisasi, cache prompt, batas waktu, biaya) ada di
+[`scanner/README.md`](../scanner/README.md).
 
 ### 5.4 Batasan data untuk prompt
 
-Arsip livetrade ~25 MB/hari (ratusan ribu transaksi) **tidak mungkin dikirim mentah**
-ke satu model pun, apalagi tiga — context window tidak muat dan biayanya tidak masuk
-akal. Jadi server meringkas dulu menjadi payload analisa: peringkat emiten (nilai,
-HAKA/HAKI, burst), transaksi besar terpilih, delta kumulatif & footprint kandidat,
-dan OB2 kandidat. Payload inilah — bukan file mentah — yang dikirim identik ke tiga
-model. "Analisa semua isi file" pada requirement dibaca sebagai "semua sinyal penting
-dari file"; ringkasannya selalu bisa diperiksa ulang karena arsip mentahnya tetap ada.
+Arsip livetrade ~77 MB/hari (ratusan ribu transaksi) **tidak mungkin dikirim mentah** —
+context window tidak muat dan biayanya tidak masuk akal. Jadi server meringkas dulu
+menjadi payload analisa (`src/prompt.ts`): kandidat beserta nilai, HAKA%, delta
+kumulatif, VWAP/zσ, opening range, POC/value area, divergensi 15m, laju tape, dan
+footprint 3 level teramai. "Analisa semua isi file" pada requirement dibaca sebagai
+"semua sinyal penting dari file"; ringkasannya selalu bisa diperiksa ulang karena arsip
+mentahnya tetap ada.
+
+Kandidatnya diambil dari `candidatesFor()` yang sama dengan tabel Papan dan diikat
+konstanta `BOARD_N` yang sama — **yang dianalisa model dijamin persis yang dilihat
+manusia di layar**. Payload analisa sebelumnya ikut dikirim sebagai konteks pada analisa
+lanjutan, jadi model membandingkan angka, bukan cuma kesimpulan; prefiksnya identik tiap
+panggilan sehingga cache prompt DeepSeek menanggung ~49% token input.
 
 ## 6. Yang sengaja belum dikerjakan
 
