@@ -9,7 +9,7 @@ import { TradeArchive, wibDateStr, wibTimestamp } from './archive.js';
 import { queryHistory } from './history.js';
 import { SymbolTracker } from './symbol.js';
 import { MarketBoard, buildCandidates, mergeRows } from './market.js';
-import { buildPayload, renderPrompt } from './prompt.js';
+import { buildPayload, renderPrompt, flattenTranscript } from './prompt.js';
 import { askAi, chatAi, aiConfigured, type ChatMsg } from './ai.js';
 import { AiHistory } from './aihist.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
@@ -303,7 +303,12 @@ ui.onApi = async (path, q, reqBody) => {
     } catch (e) {
       return { error: (e as Error).message };
     }
-    if (path === '/api/prompt') return { date, count: c.rows.length, prompt, lanjutan };
+    // Yang DISALIN harus berdiri sendiri: percakapan hari itu diratakan jadi satu teks,
+    // karena chat AI lain cuma menerima satu kotak — sementara template lanjutan
+    // menjanjikan "di atas ada analisa sebelumnya".
+    if (path === '/api/prompt') {
+      return { date, count: c.rows.length, lanjutan, prompt: flattenTranscript(history, prompt) };
+    }
 
     // /api/ai — panggil model, hasilnya dirender jadi panel di halaman.
     if (!aiConfigured()) return { error: 'kunci AI belum diset (lihat scanner/.env.example)' };
@@ -316,13 +321,17 @@ ui.onApi = async (path, q, reqBody) => {
       aiHistory.addAnalysis(date, { ts: Date.now(), count: c.rows.length, tookMs, usage, result }, prompt);
       // Seluruh benang hari itu dikembalikan, bukan cuma hasil baru: halaman menampilkan
       // percakapan sehari penuh, dan analisa baru harus muncul menyambung yang lama.
-      return { date, id: date, thread: aiHistory.get(date), prompt, lanjutan };
+      // `prompt` untuk tombol salin diratakan bersama konteksnya — lihat flattenTranscript.
+      return {
+        date, id: date, thread: aiHistory.get(date), lanjutan,
+        prompt: flattenTranscript(history, prompt),
+      };
     } catch (e) {
       const msg = (e as Error).message;
       log(`AI gagal: ${msg}`);
       // Prompt tetap dikirim: kalau panggilan gagal (saldo habis, model sibuk),
       // halaman masih bisa menawarkan salin-manual alih-alih buntu total.
-      return { error: msg, prompt };
+      return { error: msg, prompt: flattenTranscript(history, prompt) };
     }
   }
 
@@ -333,11 +342,9 @@ ui.onApi = async (path, q, reqBody) => {
   if (path === '/api/ai/entry') {
     const t = aiHistory.get((q.get('id') ?? '').trim());
     if (!t) return { error: 'riwayat tidak ditemukan' };
-    // Payload analisa TERAKHIR ikut dikirim untuk tombol "Salin prompt" — yang lebih
-    // lama tidak, supaya balasan ini tidak membengkak jadi puluhan KB tanpa diminta.
-    const last = [...t.items].reverse().find((i) => i.kind === 'analysis');
-    const lastPrompt = last && last.kind === 'analysis' ? aiHistory.readPrompt(last.promptRef) : null;
-    return { ...t, lastPrompt };
+    // "Salin prompt" di panel riwayat memberi percakapan SEHARI PENUH sebagai satu teks,
+    // bukan payload analisa terakhir saja: yang menarik dari riwayat justru rangkaiannya.
+    return { ...t, lastPrompt: flattenTranscript(threadMessages(t), '') };
   }
 
   // Tanya-jawab lanjutan dalam benang satu hari. POST karena pertanyaannya bisa panjang.

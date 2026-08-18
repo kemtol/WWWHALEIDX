@@ -73,3 +73,24 @@ export function renderPrompt(payload: unknown, tplName = 'scalp.md'): string {
   if (!tpl.includes(MARKER)) throw new Error(`prompts/${tplName} tidak punya penanda ${MARKER}`);
   return tpl.replace(MARKER, JSON.stringify(payload));
 }
+
+/**
+ * Percakapan sehari + prompt baru, diratakan jadi SATU teks yang berdiri sendiri.
+ *
+ * Dipakai tombol "Salin prompt". Lewat API konteks dikirim sebagai `messages[]`
+ * terpisah, tapi yang ditempel ke chat AI lain cuma satu kotak teks — dan template
+ * lanjutan berbunyi "Di atas ada analisa dan pembicaraan kita sebelumnya hari ini".
+ * Tanpa perataan ini kalimat itu bohong: modelnya diberi tahu ada konteks yang tidak
+ * pernah ikut terkirim, lalu diminta menjelaskan pick yang hilang tanpa tahu pick
+ * sebelumnya apa.
+ */
+export function flattenTranscript(history: { role: string; content: string }[], next: string): string {
+  if (!history.length) return next;
+  const blok = history.map((m, i) => {
+    const siapa = m.role === 'assistant' ? 'KAMU (asisten)' : 'SAYA (pengguna)';
+    return `----- [${i + 1}] ${siapa} -----\n${m.content}`;
+  }).join('\n\n');
+  const riwayat = `===== PERCAKAPAN KITA HARI INI SEJAUH INI =====\n\n${blok}`;
+  // `next` kosong = yang diminta cuma transkripnya (tombol salin di panel riwayat).
+  return next ? `${riwayat}\n\n===== GILIRAN SEKARANG =====\n\n${next}` : riwayat;
+}
