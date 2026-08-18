@@ -292,8 +292,11 @@ export class IpotClient extends EventEmitter<Events> {
     this.stopWatchdog();
     this.watchdog = setInterval(() => {
       const now = Date.now();
-      // Tidak ada pesan apa pun (termasuk ping) = socket benar-benar mati.
-      if (now - this.lastMessageAt > 75_000) {
+      // Tidak ada pesan apa pun (termasuk ping) = socket benar-benar mati — tapi hanya
+      // relevan saat bursa buka. Di luar jam bursa (termasuk istirahat siang 12:00-13:30),
+      // IPOT wajar diam >75 detik; menganggapnya mati di situ memutus sesi yang sehat dan
+      // memaksa scan QR ulang tanpa alasan (kejadian 18 Agu 2026, 13:08).
+      if (marketLikelyOpen() && now - this.lastMessageAt > 75_000) {
         return this.die(`tidak ada pesan ${Math.round((now - this.lastMessageAt) / 1000)} detik`);
       }
       // Socket hidup tapi stream berhenti saat bursa buka: coba subscribe ulang dulu.
