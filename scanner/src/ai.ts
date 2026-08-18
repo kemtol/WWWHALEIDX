@@ -46,6 +46,10 @@ export function aiConfigured() { return !!process.env.DEEPSEEK_API_KEY; }
 
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
+/** Harga di IDX selalu bilangan bulat rupiah. Model kadang mengarang pecahan
+ *  (`deepseek-v4-flash` terpantau memberi entry 149,9) — itu harga yang tidak mungkin
+ *  ada di papan, jadi jangan sampai tampil sebagai angka keputusan. */
+const price = (v: unknown) => Math.round(num(v));
 
 /** Ambil bentuk yang dikenal saja. Field asing dibuang, field hilang diberi nilai
  *  kosong — halaman tidak perlu menebak-nebak apa yang dikirim model. */
@@ -61,9 +65,9 @@ function normalize(raw: unknown): AiResult {
         symbol: str(q.symbol).toUpperCase(),
         setup: str(q.setup),
         keyakinan: Math.min(5, Math.max(1, Math.round(num(q.keyakinan)) || 1)),
-        entry: num(q.entry),
-        invalidasi: num(q.invalidasi),
-        target: num(q.target),
+        entry: price(q.entry),
+        invalidasi: price(q.invalidasi),
+        target: price(q.target),
         alasan: str(q.alasan),
         bukti: Array.isArray(q.bukti) ? q.bukti.map(str).filter(Boolean) : [],
       };

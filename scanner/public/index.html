@@ -145,10 +145,9 @@
   /* Baris meta papan: hint di kiri, tombol AI menempel kanan — sejajar dengan 15m di atasnya. */
   .cmeta{display:flex;align-items:center;gap:.6rem;margin:0 0 .6rem}
   .cmeta .hint{margin:0;flex:1;min-width:0}
-  #c-ai{padding:.05rem .75rem;letter-spacing:.03em}
-  #c-ai.ok{border-color:var(--up);color:var(--up)}
-  #c-ai.err{border-color:var(--down);color:var(--down)}
-  #c-ai:disabled{opacity:.5;cursor:default}
+  /* min-width: saat menghitung detik labelnya berubah tiap detik — tanpa lebar tetap
+     tombolnya berkedut dan menggeser hint di kirinya. */
+  #c-ai{padding:.05rem .75rem;letter-spacing:.03em;min-width:3.6rem;text-align:center}
   /* bar riwayat */
   .hbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;font-size:.78rem;
         padding:.45rem .8rem;background:#12171e;border-bottom:1px solid var(--line)}
@@ -1410,20 +1409,41 @@ $('a-copy').onclick = async () => {
   } catch (e) { console.error('salin prompt gagal:', e); }
 };
 
+/** Hasil terakhir disimpan supaya modal yang sudah ditutup bisa dibuka lagi tanpa
+ *  memanggil model (dan membayar) sekali lagi. */
+let aiLast = null;
+let aiBusy = false;
+
 $('c-ai').onclick = async () => {
   const btn = $('c-ai');
-  btn.disabled = true;
-  btn.textContent = '…';
-  // Penghitung berjalan: modelnya bisa berpikir 2-3 menit, dan tanpa angka yang
-  // bergerak layar diam selama itu terbaca seperti aplikasi menggantung.
+  // Sedang berjalan → tombolnya membuka lagi panel yang tadi ditutup, bukan diam saja.
+  if (aiBusy) { $('aibox').classList.add('on'); return; }
+  // Sudah ada hasil dan panelnya tertutup → tampilkan lagi, jangan panggil ulang.
+  if (aiLast && !$('aibox').classList.contains('on')) {
+    renderAi(aiLast);
+    $('aibox').classList.add('on');
+    return;
+  }
+
+  aiBusy = true;
+  aiLast = null;
+  // Sengaja TIDAK di-disable: tombol nonaktif tidak mengirim event klik, jadi cabang
+  // "klik saat sibuk → buka lagi panelnya" di atas tidak akan pernah tercapai.
+  // Permintaan ganda sudah dicegah `aiBusy`.
+  // Penghitung ada di TOMBOL, bukan cuma di dalam modal: kalau modalnya ditutup,
+  // ini satu-satunya tanda bahwa permintaan masih berjalan. Tanpa itu tombol terlihat
+  // mati dan orang mengkliknya berulang kali tanpa hasil — persis yang terjadi.
   const t0 = Date.now();
   const tick = setInterval(() => {
-    $('a-note').textContent = `model sedang menganalisa… ${Math.round((Date.now() - t0) / 1000)} dtk`;
+    const s = Math.round((Date.now() - t0) / 1000);
+    btn.textContent = `AI ${s}s`;
+    $('a-note').textContent = `model sedang menganalisa… ${s} dtk`;
   }, 1000);
+  btn.textContent = 'AI 0s';
   $('a-note').textContent = 'model sedang menganalisa… 0 dtk';
   $('a-body').innerHTML = '<p class="hint">Menunggu jawaban model — biasanya 2–3 menit, '
-    + 'karena ia menalar dulu sebelum menjawab. Panel ini boleh ditutup; '
-    + 'tabel di belakang tetap mengalir.</p>';
+    + 'karena ia menalar dulu sebelum menjawab.<br>Boleh ditutup: panel ini '
+    + '<b>terbuka sendiri</b> begitu jawabannya datang.</p>';
   $('aibox').classList.add('on');
   try {
     const p = new URLSearchParams();
@@ -1436,6 +1456,7 @@ $('c-ai').onclick = async () => {
         + (aiPrompt ? '<p class="hint">Prompt-nya tetap bisa disalin lewat tombol di atas, '
           + 'lalu ditempel di chat AI mana pun.</p>' : '');
     } else {
+      aiLast = r;
       renderAi(r);
     }
   } catch (e) {
@@ -1443,8 +1464,11 @@ $('c-ai').onclick = async () => {
     $('a-body').innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
   } finally {
     clearInterval(tick);
-    btn.disabled = false;
+    aiBusy = false;
     btn.textContent = 'AI';
+    // Jawaban tidak boleh mendarat di panel yang tertutup — itu membuat hasil yang
+    // sudah dibayar hilang tanpa jejak.
+    $('aibox').classList.add('on');
   }
 };
 

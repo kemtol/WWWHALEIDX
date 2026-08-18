@@ -382,9 +382,27 @@ model lain atas data yang sama, dan jadi jalan keluar kalau panggilan gagal (sal
 model sibuk): server tetap mengirim `prompt` di balasan error, jadi tidak pernah buntu
 total.
 
-Model reasoning bisa berpikir **puluhan detik sampai beberapa menit** untuk 20-an emiten;
-batas waktunya 180 detik. Cek sisa saldo:
+**Menunggu 2–3 menit itu normal**, dan itu menuntut UI-nya jujur. Terukur: 103–167 detik
+untuk 19–20 kandidat di `deepseek-v4-pro`. Batasnya 300 detik. Maka:
+
+- Tombolnya menghitung detik (`AI 45s`) — **di tombol**, bukan hanya di dalam modal,
+  supaya progresnya terlihat walau panelnya ditutup.
+- Modal **terbuka sendiri** begitu jawabannya datang. Tanpa ini, hasil yang sudah dibayar
+  mendarat di panel tersembunyi dan hilang tanpa jejak — persis yang terjadi 18 Agu 2026:
+  server mencatat `AI: 2 pick · 134 dtk` sementara di layar tidak ada apa-apa.
+- Tombolnya **tidak** di-disable saat menunggu: tombol nonaktif tidak mengirim event klik,
+  jadi tidak bisa dipakai membuka lagi panel yang tertutup. Permintaan ganda dicegah
+  flag `aiBusy`, bukan atribut `disabled`.
+- Hasil terakhir disimpan. Klik lagi setelah panel ditutup → hasil lama ditampilkan,
+  **tanpa** memanggil (dan membayar) model lagi.
+
+`deepseek-v4-flash` cuma ~30% lebih cepat (90 dtk terukur) dan lebih ceroboh — ia sempat
+mengeluarkan harga pecahan seperti 149,9 yang tidak mungkin ada di papan IDX. Karena itu
+`src/ai.ts` membulatkan entry/invalidasi/target ke rupiah apa pun modelnya.
+
+Cek sisa saldo:
 `curl -s https://api.deepseek.com/user/balance -H "Authorization: Bearer $KEY"`.
+Biaya sekali panggil di bawah $0,005 — saldo $2,51 tidak bergerak setelah beberapa kali.
 
 ```
 GET /api/prompt[?date=YYYY-MM-DD][&n=15]  → { date, count, prompt } | { error }
