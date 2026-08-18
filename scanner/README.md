@@ -2,7 +2,7 @@
 
 Login QR ke IPOT + running trade live di halaman lokal.
 
-## Login itu modal, bukan gerbang
+## Login duduk di kolom Live Trade, bukan menggerbang aplikasi
 
 Dashboard **selalu** bisa dipakai. Login hanya syarat untuk satu hal: aliran transaksi
 **live**. Riwayat, Papan, detail per emiten, dan analisa AI semuanya membaca arsip dari
@@ -10,23 +10,26 @@ disk dan jalan penuh tanpa sesi IPOT — terbukti: dengan collector dalam keadaa
 login, `/api/candidates` tetap mengembalikan 7 KB, `/api/history` 14 KB, `/api/symbol`
 26 KB.
 
-Versi sebelumnya mengunci semua itu di balik layar QR penuh-halaman. Akibatnya di luar
-jam bursa aplikasinya buntu: tidak ada yang bisa dilakukan, dan tidak ada gunanya login
-karena memang tidak ada data mengalir.
+Panel QR (`#login`) duduk **di dalam kolom Live Trade**, mengisi ruang yang tanpa login
+memang kosong. Kekosongan kolom itu sendiri sudah menjelaskan kenapa QR-nya di sana —
+jadi tidak ada tombol pembuka, tidak ada modal, dan tidak ada keadaan "sudah ditutup
+atau belum" yang harus diingat kode maupun pengguna.
 
-Sekarang QR jadi modal (`#loginbox`, z-index 80 — di atas semua modal lain) yang bisa
-ditutup lewat tombol maupun klik latar. Kebijakan munculnya:
-
-| Keadaan | Perilaku |
+| Keadaan | Kolom Live Trade berisi |
 |---|---|
-| Belum login, **bursa buka** | modal muncul sendiri — ada data yang sedang hilang |
-| Belum login, **bursa tutup** | tidak muncul sama sekali; dashboard langsung terpakai |
-| Sudah ditutup manual | tidak muncul lagi sendiri di tab itu; tombol **Scan QR** merah di header tetap ada |
-| Login berhasil | modal menutup sendiri, tombol berganti **Logout** |
+| Belum login, mode live | **panel QR** |
+| Belum login, mode riwayat | tabel arsip — QR menyingkir, kolomnya sedang dipakai |
+| Sudah login | tabel transaksi live; tombol **Logout** muncul di header |
 
-Peringatan `⚠ N mnt` (menit yang tidak terekam) hidup di **header**, bukan di dalam
-modal. Ini disengaja: modalnya bisa ditutup, dan kehilangan data diam-diam saat bursa
-buka terlalu mahal untuk ikut hilang bersamanya.
+Peringatan `⚠ N mnt` (menit yang tidak terekam) tetap ada di **header**, terpisah dari
+panel QR: di mode riwayat panelnya disembunyikan, dan kehilangan data saat bursa buka
+terlalu mahal untuk ikut hilang bersamanya. Kalimat lengkapnya ada di tooltip dan di
+dalam panel QR.
+
+> Dua rancangan sebelumnya dibuang: layar QR penuh-halaman (mengunci seluruh aplikasi —
+> di luar jam bursa jadi buntu, dan tidak ada gunanya login karena tidak ada data), lalu
+> modal yang bisa ditutup (masih menuntut klik, dan menambah keadaan "sudah ditutup"
+> yang harus dilacak). Yang sekarang tidak menambah keadaan apa pun.
 
 ## Dua proses: collector dan app
 
@@ -68,7 +71,7 @@ npm run app          # terminal 2 — bebas restart
 2. Klik **Tampilkan QR**. Di HP: **IPOT → Member Area → Security → Login to IPOT Web** →
    scan QR (berlaku 60 detik). QR juga dicetak di terminal collector sebagai cadangan
    kalau belum ada app yang tersambung.
-3. Login berhasil → modal QR menutup sendiri, running trade mengalir.
+3. Login berhasil → panel QR digantikan tabel, running trade mengalir.
 4. Tombol **Logout** memutus sesi di collector, bukan cuma menyembunyikan tampilan.
 
 `npm run dev:app` menjalankan app dengan reload otomatis — aman, karena collector tidak
@@ -145,7 +148,7 @@ src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
 src/aihist.ts   riwayat AI: satu benang per hari (logs/ai/), migrasi bentuk lama
 src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
-public/index.html  dashboard 3 kolom + modal: login QR, detail emiten, analisa & riwayat AI
+public/index.html  dashboard 3 kolom; panel QR di kolom live, modal detail/AI/riwayat AI
 tools/analyze-lt.ts   bedah field feed dari arsip satu hari
 tools/backfill-lt.ts  pemulihan: tarik payload LT lama dari frames.jsonl
 tools/build-payload.ts  payload/prompt analisa AI dari baris perintah, atas arsip
@@ -753,7 +756,7 @@ dan tidak bisa diambil kembali dari mana pun.
 - peringatan mencolok di journal, diulang tiap 10 menit dengan hitungan menit yang hilang
 - **notifikasi desktop** (`notify-send`, urgency critical) — satu-satunya jalur yang sampai
   saat kamu tidak sedang melihat halaman maupun terminal
-- penanda merah `⚠ N mnt` di header dashboard, di samping tombol Scan QR — sengaja di
+- penanda merah `⚠ N mnt` di header dashboard — sengaja di
   header dan bukan cuma di dalam modal QR, karena modalnya bisa ditutup dan kehilangan
   data diam-diam terlalu mahal untuk ikut hilang bersamanya (kalimat lengkapnya di
   tooltip dan di dalam modal)

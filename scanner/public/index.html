@@ -71,24 +71,25 @@
     .grid3>section{height:auto;max-height:80vh}
   }
 
-  /* Login = modal yang bisa ditutup, BUKAN gerbang seluruh aplikasi.
-     Login hanya syarat untuk aliran transaksi live; riwayat, Papan, detail per emiten,
-     dan analisa AI semuanya baca arsip dari disk dan jalan penuh tanpa sesi. Versi
-     sebelumnya mengunci semua itu di balik layar QR — di luar jam bursa aplikasinya
-     jadi buntu tanpa ada yang bisa dibuka kuncinya.
-     z-index 80: di atas detail (50), analisa AI (60), dan riwayat AI (70). */
-  #loginbox{position:fixed;inset:0;background:rgba(1,4,9,.9);z-index:80;
-            display:none;align-items:center;justify-content:center;padding:1.5rem}
-  #loginbox.on{display:flex}
+  /* QR duduk di dalam kolom Live Trade, mengisi ruang yang memang kosong tanpa login —
+     bukan modal, bukan layar penuh. Ruang kosongnya sendiri sudah jadi penanda yang
+     jelas, jadi tidak ada tombol pembuka dan tidak ada keadaan "sudah ditutup atau
+     belum" yang perlu diingat. Kolom lain (Papan, riwayat, AI) tetap terpakai karena
+     semuanya baca arsip dari disk dan tidak butuh sesi. */
 
-  /* login */
-  #login{display:flex;gap:2.5rem;align-items:center;flex-wrap:wrap;justify-content:center;
+  /* login — panel di dalam kolom Live Trade, bukan layar penuh. `margin:auto` menaruhnya
+     di tengah ruang kosong; kalau kolomnya sempit isinya membungkus sendiri. */
+  #login{display:flex;gap:2rem;align-items:center;flex-wrap:wrap;justify-content:center;
          background:var(--panel);border:1px solid var(--line);border-radius:0;
-         padding:2rem}
+         padding:1.6rem;margin:1.2rem;max-width:calc(100% - 2.4rem)}
   #login ol{margin:.4rem 0 0;padding-left:1.2rem;color:var(--muted);line-height:1.9}
-  #login h2{margin:0;font-size:1.15rem}
+  #login h2{margin:0;font-size:1rem}
   #login b{color:var(--text)}
-  .qrbox{width:320px;height:320px;display:flex;align-items:center;justify-content:center;
+  #login>div{min-width:0;flex:1 1 260px}
+  /* Kotak QR menyesuaikan lebar kolom — 320px tetap akan meluber saat kolom filter
+     terbuka dan layarnya tidak lebar. */
+  .qrbox{width:min(280px,100%);aspect-ratio:1;display:flex;align-items:center;
+         justify-content:center;flex:0 1 auto;
          background:#fff;border-radius:0;padding:10px}
   .qrbox svg{width:100%;height:100%;display:block}
   .qrbox.placeholder{background:#0d1117;border:1px dashed var(--line);color:var(--muted);
@@ -397,33 +398,6 @@
 </style>
 </head>
 <body>
-<div id="loginbox">
-  <section id="login">
-    <div>
-      <h2>Login dengan QR</h2>
-      <ol>
-        <li>Buka aplikasi <b>IPOT</b> di HP</li>
-        <li>Ketuk <b>Member Area</b></li>
-        <li>Ketuk <b>Security</b> → <b>Login to IPOT Web</b></li>
-        <li>Scan QR di samping</li>
-      </ol>
-      <p class="lost hidden" id="lost"></p>
-      <p class="hint" style="margin:1rem 0 0">
-        Login hanya perlu untuk transaksi <b>live</b>. Riwayat, Papan, dan analisa AI
-        tetap bisa dipakai tanpa login — tutup saja panel ini.
-      </p>
-      <p style="margin:1.2rem 0 0">
-        <button class="primary" id="btn-login">Tampilkan QR</button>
-        <span id="countdown" style="margin-left:.8rem"></span>
-        <button id="login-close" style="margin-left:.8rem">Tutup</button>
-      </p>
-    </div>
-    <div class="qrbox placeholder" id="qrbox">
-      Klik “Tampilkan QR”.<br>QR berlaku 60 detik,<br>jadi siapkan HP dulu.
-    </div>
-  </section>
-</div>
-
 <div id="app-view">
   <div class="wrap">
   <div class="grid3">
@@ -521,11 +495,10 @@
       <button id="pause">Pause</button>
       <button id="btn-hist" title="Lihat transaksi dari arsip harian">Riwayat</button>
       <span id="phase" style="margin-left:auto"></span>
-      <!-- Peringatan hidup di HEADER, bukan di dalam modal QR: modalnya bisa ditutup,
-           dan kehilangan data diam-diam saat bursa buka terlalu mahal untuk ikut hilang
-           bersamanya. -->
+      <!-- Peringatan hidup di HEADER supaya tetap terlihat di mode riwayat, saat panel
+           QR di bawah sedang tidak ditampilkan. -->
+
       <span class="nolog hidden" id="nolog"></span>
-      <button id="btn-qr" class="danger hidden" title="Belum login — transaksi live tidak terekam">Scan QR</button>
       <button id="logout" class="hidden" title="Keluar dari sesi IPOT">Logout</button>
     </div>
 
@@ -561,6 +534,35 @@
         <tbody id="rows"></tbody>
       </table>
       <div class="empty" id="empty">Belum ada data.</div>
+
+      <!-- QR duduk DI SINI, mengisi kolom yang memang kosong tanpa login.
+           Ruang kosongnya sendiri yang jadi penanda: tidak perlu tombol, tidak perlu
+           modal, dan tidak ada keadaan "sudah ditutup atau belum" yang harus diingat.
+           Disembunyikan di mode riwayat — di sana tabelnya berisi arsip dan tetap
+           berguna tanpa login. -->
+      <section id="login" class="hidden">
+        <div>
+          <h2>Login dengan QR</h2>
+          <ol>
+            <li>Buka aplikasi <b>IPOT</b> di HP</li>
+            <li>Ketuk <b>Member Area</b></li>
+            <li>Ketuk <b>Security</b> → <b>Login to IPOT Web</b></li>
+            <li>Scan QR di samping</li>
+          </ol>
+          <p class="lost hidden" id="lost"></p>
+          <p class="hint" style="margin:1rem 0 0">
+            Hanya transaksi <b>live</b> yang butuh login. <b>Riwayat</b>, <b>Papan</b>,
+            dan <b>analisa AI</b> di sebelah tetap jalan dari arsip.
+          </p>
+          <p style="margin:1.2rem 0 0">
+            <button class="primary" id="btn-login">Tampilkan QR</button>
+            <span id="countdown" style="margin-left:.8rem"></span>
+          </p>
+        </div>
+        <div class="qrbox placeholder" id="qrbox">
+          Klik “Tampilkan QR”.<br>QR berlaku 60 detik,<br>jadi siapkan HP dulu.
+        </div>
+      </section>
     </div>
   </section>
 
@@ -810,46 +812,35 @@ try {
   }
 } catch { /* draft rusak: abaikan, server punya config yang tersimpan */ }
 
-/* ── Login: modal, bukan gerbang ────────────────────────────────────────────
- * Dashboard selalu tampil. Login cuma syarat untuk transaksi live — riwayat,
- * Papan, detail emiten, dan analisa AI semuanya dari arsip dan jalan tanpa sesi. */
+/* ── Login: panel di kolom Live Trade, bukan gerbang ────────────────────────
+ * Dashboard selalu terpakai. Login cuma syarat untuk transaksi live — riwayat,
+ * Papan, detail emiten, dan analisa AI semuanya dari arsip dan jalan tanpa sesi.
+ * QR-nya duduk di ruang kosong kolom Live Trade: di situlah data live seharusnya
+ * ada, jadi kekosongannya sendiri sudah menjelaskan kenapa QR-nya di sana. */
 
 let loggedIn = false;
-let marketOpen = false;
-/** Sekali pengguna menutup modalnya sendiri, jangan dibuka paksa lagi di tab ini.
- *  Peringatan di header sudah cukup; memaksa modal muncul terus itu menyebalkan. */
-let qrDismissed = false;
 
-function openLogin() { $('loginbox').classList.add('on'); }
-function closeLogin() { qrDismissed = true; $('loginbox').classList.remove('on'); }
-$('login-close').onclick = closeLogin;
-$('loginbox').onclick = (e) => { if (e.target === $('loginbox')) closeLogin(); };
-$('btn-qr').onclick = () => { qrDismissed = false; openLogin(); };
-
-/** Modal muncul sendiri HANYA saat ada yang dipertaruhkan: belum login sementara
- *  bursa buka. Di luar jam bursa tidak ada data yang hilang, jadi tidak ada alasan
- *  menghalangi layar. */
-function maybeAutoOpenLogin() {
-  if (!loggedIn && marketOpen && !qrDismissed) openLogin();
+/** Panel QR tampil hanya kalau belum login DAN sedang di mode live. Di mode riwayat
+ *  tabelnya berisi arsip dan tetap berguna tanpa login — menutupinya dengan QR justru
+ *  menghalangi hal yang sedang dipakai. */
+function syncLoginPane() {
+  const show = !loggedIn && !histMode;
+  $('login').classList.toggle('hidden', !show);
+  $('empty').classList.toggle('hidden', show);
 }
 
 function setLogged(on) {
   loggedIn = on;
-  $('btn-qr').classList.toggle('hidden', on);
   $('logout').classList.toggle('hidden', !on);
   if (on) {
-    $('loginbox').classList.remove('on');
-    qrDismissed = false;   // sesi baru: kalau nanti keluar lagi, boleh menawarkan QR lagi
     $('empty').textContent = 'Login berhasil. Menunggu transaksi yang lolos filter…';
   } else {
     expiresAt = 0;
     $('btn-login').textContent = 'Tampilkan QR';
     $('qrbox').className = 'qrbox placeholder';
     $('qrbox').innerHTML = 'Klik “Tampilkan QR”.<br>QR berlaku 60 detik,<br>jadi siapkan HP dulu.';
-    $('empty').innerHTML = 'Belum login — tabel live kosong. '
-      + '<b>Riwayat</b>, <b>Papan</b>, dan <b>analisa AI</b> tetap bisa dipakai dari arsip.';
-    maybeAutoOpenLogin();
   }
+  syncLoginPane();
 }
 
 $('logout').onclick = () => {
@@ -1018,6 +1009,8 @@ function setHistMode(on) {
     $('empty').textContent = 'Menunggu transaksi live…';
     $('h-info').textContent = 'Saringan di kolom kiri ikut berlaku.';
   }
+  // Mode riwayat memakai kolom ini untuk arsip, jadi panel QR harus menyingkir.
+  syncLoginPane();
 }
 $('btn-hist').onclick = () => setHistMode(!histMode);
 $('h-exit').onclick = () => setHistMode(false);
@@ -1901,21 +1894,14 @@ function connect() {
     // setState hanya menyiarkan perubahan, jadi cek keberadaan field-nya
     if ('loggedIn' in m) setLogged(!!m.loggedIn);
     if ('qrSvg' in m) showQr(m.qrSvg, m.qrExpiresAt);
-    if ('marketOpen' in m) {
-      marketOpen = !!m.marketOpen;
-      // Bursa baru buka sementara belum login: inilah saatnya modal muncul sendiri.
-      maybeAutoOpenLogin();
-    }
     if ('notLoggedMins' in m) {
       const n = m.notLoggedMins;
-      // Dua tempat sekaligus: di modal (kalau sedang terbuka) DAN di header — yang
-      // terakhir itu yang bertahan setelah modalnya ditutup.
+      // Dua tempat: di panel QR (kalimat penuh) DAN di header — yang terakhir itu yang
+      // tetap terlihat di mode riwayat, saat panel QR sedang disembunyikan.
       $('lost').classList.toggle('hidden', !n);
       if (n) $('lost').textContent =
         `Bursa sedang buka dan scanner belum login — ${n} menit transaksi tidak terekam. Scan QR untuk mulai merekam.`;
-      // Sengaja sependek mungkin: header tingginya dipatok 34px dan sudah padat —
-      // teks panjang mendorong tombol Scan QR keluar layar. Kalimat lengkapnya di
-      // tooltip dan di dalam modal.
+      // Sengaja sependek mungkin: header tingginya dipatok 34px dan sudah padat.
       $('nolog').classList.toggle('hidden', !n);
       if (n) {
         $('nolog').textContent = `⚠ ${n} mnt`;
