@@ -11,6 +11,7 @@ import { SymbolTracker } from './symbol.js';
 import { MarketBoard, buildCandidates, mergeRows } from './market.js';
 import { buildPayload, renderPrompt } from './prompt.js';
 import { askAi, aiConfigured } from './ai.js';
+import { AiHistory, aiEntryId } from './aihist.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
 /**
@@ -62,6 +63,7 @@ const tracker = new SymbolTracker();
  *  arsip saat start (warmup), lalu inkremental dari feed. */
 const board = new MarketBoard();
 const bus = new BusClient();
+const aiHistory = new AiHistory(join(ROOT, 'logs'));
 
 const BACKLOG_MAX = 200;
 let backlog: unknown[] = [];
@@ -272,11 +274,14 @@ ui.onApi = async (path, q) => {
     const t0 = Date.now();
     try {
       const { result, usage } = await askAi(prompt);
+      const tookMs = Date.now() - t0;
       log(`AI: ${result.picks.length} pick · ${usage.promptTokens}+${usage.completionTokens} token`
-        + ` · ${Math.round((Date.now() - t0) / 1000)} dtk`);
+        + ` · ${Math.round(tookMs / 1000)} dtk`);
+      const id = aiEntryId();
+      aiHistory.save({ id, ts: Date.now(), date, count: c.rows.length, tookMs, usage, result }, prompt);
       // `prompt` ikut dikirim juga saat berhasil supaya tombol "Salin prompt" di modal
       // tetap berguna — mis. untuk membandingkan jawaban model lain atas data yang sama.
-      return { date, count: c.rows.length, result, usage, prompt, tookMs: Date.now() - t0 };
+      return { id, date, count: c.rows.length, result, usage, prompt, tookMs };
     } catch (e) {
       const msg = (e as Error).message;
       log(`AI gagal: ${msg}`);
@@ -284,6 +289,15 @@ ui.onApi = async (path, q) => {
       // halaman masih bisa menawarkan salin-manual alih-alih buntu total.
       return { error: msg, prompt };
     }
+  }
+
+  // Riwayat analisa AI. Daftar sengaja tanpa `result` penuh — kolom kiri hanya butuh
+  // waktu, jumlah pick, dan kodenya; detail diambil saat barisnya dipilih.
+  if (path === '/api/ai/list') return { entries: aiHistory.list() };
+
+  if (path === '/api/ai/entry') {
+    const e = aiHistory.get((q.get('id') ?? '').trim());
+    return e ?? { error: 'riwayat tidak ditemukan' };
   }
 
   if (path === '/api/history') {

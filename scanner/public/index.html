@@ -148,6 +148,26 @@
   /* min-width: saat menghitung detik labelnya berubah tiap detik — tanpa lebar tetap
      tombolnya berkedut dan menggeser hint di kirinya. */
   #c-ai{padding:.05rem .75rem;letter-spacing:.03em;min-width:3.6rem;text-align:center}
+  #c-aih{padding:.05rem .75rem}
+  /* Riwayat AI: sidebar daftar + panel hasil, pola yang sudah dikenal dari chat AI. */
+  #aihist{position:fixed;inset:0;background:rgba(1,4,9,.9);z-index:70;
+          display:none;align-items:center;justify-content:center;padding:.5rem}
+  #aihist.on{display:flex}
+  .hbox{background:var(--bg);border:1px solid var(--line);width:100%;height:100%;
+        display:flex;flex-direction:column}
+  .hgrid{flex:1;min-height:0;display:grid;gap:1px;background:var(--line);
+         grid-template-columns:260px minmax(0,1fr)}
+  .hside{background:var(--bg);overflow:auto;padding:.4rem}
+  .hmain{background:var(--bg);overflow:auto;padding:.9rem}
+  .hday{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
+        padding:.7rem .5rem .3rem}
+  .hitem{padding:.45rem .5rem;cursor:pointer;border-left:2px solid transparent;line-height:1.35}
+  .hitem:hover{background:var(--panel)}
+  .hitem.sel{background:var(--panel);border-left-color:var(--accent)}
+  .hitem .t{font-size:.8rem;font-variant-numeric:tabular-nums}
+  .hitem .s{font-size:.68rem;color:var(--muted);display:block;overflow:hidden;
+            text-overflow:ellipsis;white-space:nowrap}
+  @media (max-width:900px){ .hgrid{grid-template-columns:1fr;overflow:auto} }
   /* bar riwayat */
   .hbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;font-size:.78rem;
         padding:.45rem .8rem;background:#12171e;border-bottom:1px solid var(--line)}
@@ -480,7 +500,8 @@
       <div class="pbody">
         <div class="cmeta">
           <p class="hint" id="c-window">—</p>
-          <button id="c-ai" title="Salin prompt analisa (kandidat yang tampil di tabel ini) ke clipboard, lalu tempel di chat AI">AI</button>
+          <button id="c-ai" title="Minta model menganalisa kandidat yang tampil di tabel ini">AI</button>
+          <button id="c-aih" title="Riwayat analisa AI sebelumnya">Riwayat AI</button>
         </div>
         <table id="c-table">
           <colgroup>
@@ -529,6 +550,22 @@
       <button id="a-close" style="margin-left:auto">Tutup</button>
     </div>
     <div class="abody" id="a-body"></div>
+  </div>
+</div>
+
+<!-- ── Riwayat analisa AI: daftar di kiri, hasilnya di kanan ──────────────── -->
+<div id="aihist">
+  <div class="hbox">
+    <div class="dhead">
+      <h3>Riwayat Analisa AI</h3>
+      <span class="hint" id="h-note"></span>
+      <button id="h-copy" title="Salin prompt yang dipakai analisa ini">Salin prompt</button>
+      <button id="h-close" style="margin-left:auto">Tutup</button>
+    </div>
+    <div class="hgrid">
+      <div class="hside" id="h-list"></div>
+      <div class="hmain" id="h-main"></div>
+    </div>
   </div>
 </div>
 
@@ -1352,17 +1389,23 @@ let aiPrompt = '';
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function renderAi(r) {
+/** Baris keterangan di kepala panel — sama untuk hasil live maupun riwayat. */
+function aiNote(r) {
   const u = r.usage || {};
-  $('a-note').textContent = [
+  return [
     r.count ? `${r.count} kandidat` : '',
     u.model || '',
     r.tookMs ? `${Math.round(r.tookMs / 1000)} dtk` : '',
     u.promptTokens ? `${nf.format(u.promptTokens + (u.completionTokens || 0))} token` : '',
   ].filter(Boolean).join(' · ');
+}
 
+/** Render hasil ke wadah mana pun. Panel live dan panel riwayat memakai fungsi yang
+ *  sama supaya hasil lama tidak pernah tampil beda dari hasil yang baru keluar.
+ *  `onSym` menentukan apa yang ditutup sebelum membuka panel detail emiten. */
+function renderAiInto(box, r, onSym) {
   const a = r.result;
-  if (!a) { $('a-body').innerHTML = ''; return; }
+  if (!a) { box.innerHTML = ''; return; }
   const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
 
   const picks = a.picks.length ? a.picks.map((p) => {
@@ -1384,7 +1427,7 @@ function renderAi(r) {
     </div>`;
   }).join('') : '<p class="hint">Model tidak menemukan setup yang layak. Itu jawaban yang sah.</p>';
 
-  $('a-body').innerHTML =
+  box.innerHTML =
     (a.pasar ? `<p class="apasar">${esc(a.pasar)}</p>` : '') + picks +
     (a.dihindari.length
       ? `<div class="avoid"><b>Dihindari</b><br>${a.dihindari
@@ -1392,9 +1435,14 @@ function renderAi(r) {
       : '');
 
   // Kode emiten di hasil bisa diklik, sama seperti di tabel mana pun.
-  $('a-body').querySelectorAll('.sym').forEach((el) => {
-    el.onclick = () => { closeAi(); openDetail(el.textContent.trim()); };
+  box.querySelectorAll('.sym').forEach((el) => {
+    el.onclick = () => { onSym(); openDetail(el.textContent.trim()); };
   });
+}
+
+function renderAi(r) {
+  $('a-note').textContent = aiNote(r);
+  renderAiInto($('a-body'), r, closeAi);
 }
 
 function closeAi() { $('aibox').classList.remove('on'); }
@@ -1470,6 +1518,94 @@ $('c-ai').onclick = async () => {
     // sudah dibayar hilang tanpa jejak.
     $('aibox').classList.add('on');
   }
+};
+
+/* ── Riwayat analisa AI ─────────────────────────────────────────────────────
+ * Daftar di kiri, hasilnya di kanan. Semua tersimpan di disk (logs/ai/), jadi
+ * analisa lama tetap ada setelah app restart — itu justru gunanya: menilai apakah
+ * rekomendasi kemarin ternyata benar. */
+
+let histPrompt = '';
+
+/** "Hari ini" / "Kemarin" / tanggal — pengelompokan yang langsung terbaca, alih-alih
+ *  deretan tanggal yang harus dihitung sendiri jaraknya. */
+function dayLabel(ts) {
+  const d = new Date(ts);
+  const key = (x) => x.toISOString().slice(0, 10);
+  const now = new Date();
+  const kemarin = new Date(now.getTime() - 86400_000);
+  const k = key(new Date(d.getTime() + 7 * 3600_000));
+  if (k === key(new Date(now.getTime() + 7 * 3600_000))) return 'Hari ini';
+  if (k === key(new Date(kemarin.getTime() + 7 * 3600_000))) return 'Kemarin';
+  return k;
+}
+
+const jam = (ts) => new Date(ts).toLocaleTimeString('id-ID',
+  { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
+
+async function openAiEntry(id, el) {
+  $('h-list').querySelectorAll('.hitem').forEach((x) => x.classList.remove('sel'));
+  if (el) el.classList.add('sel');
+  $('h-main').innerHTML = '<p class="hint">memuat…</p>';
+  try {
+    const r = await (await fetch('/api/ai/entry?id=' + encodeURIComponent(id))).json();
+    if (r.error) throw new Error(r.error);
+    histPrompt = r.prompt || '';
+    $('h-note').textContent = `${jam(r.ts)} · ${aiNote(r)}`;
+    // Menutup panel riwayat dulu saat kode emiten diklik — kalau tidak, panel detail
+    // muncul di belakangnya dan tidak terlihat.
+    renderAiInto($('h-main'), r, closeHist);
+  } catch (e) {
+    $('h-main').innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
+  }
+}
+
+async function openHist() {
+  $('aihist').classList.add('on');
+  $('h-note').textContent = '';
+  $('h-list').innerHTML = '<p class="hint" style="padding:.5rem">memuat…</p>';
+  $('h-main').innerHTML = '';
+  try {
+    const r = await (await fetch('/api/ai/list')).json();
+    const list = r.entries || [];
+    if (!list.length) {
+      $('h-list').innerHTML = '<p class="hint" style="padding:.5rem">Belum ada analisa.</p>';
+      $('h-main').innerHTML = '<p class="hint">Tekan tombol <b>AI</b> di papan untuk '
+        + 'membuat analisa pertama. Hasilnya tersimpan di sini.</p>';
+      return;
+    }
+    let html = '', lastDay = '';
+    for (const e of list) {
+      const d = dayLabel(e.ts);
+      if (d !== lastDay) { html += `<div class="hday">${esc(d)}</div>`; lastDay = d; }
+      const sym = e.symbols.length ? e.symbols.join(' ') : 'tidak ada pick';
+      html += `<div class="hitem" data-id="${esc(e.id)}">
+        <span class="t">${jam(e.ts)} · ${e.picks} pick</span>
+        <span class="s" title="${esc(sym)}">${esc(sym)}</span></div>`;
+    }
+    $('h-list').innerHTML = html;
+    $('h-list').querySelectorAll('.hitem').forEach((el) => {
+      el.onclick = () => openAiEntry(el.dataset.id, el);
+    });
+    // Yang terbaru langsung dibuka — itu yang hampir selalu dicari.
+    const first = $('h-list').querySelector('.hitem');
+    if (first) openAiEntry(first.dataset.id, first);
+  } catch (e) {
+    $('h-list').innerHTML = `<p class="aerr" style="padding:.5rem">${esc(e.message)}</p>`;
+  }
+}
+
+function closeHist() { $('aihist').classList.remove('on'); }
+$('c-aih').onclick = openHist;
+$('h-close').onclick = closeHist;
+$('aihist').onclick = (e) => { if (e.target === $('aihist')) closeHist(); };
+$('h-copy').onclick = async () => {
+  if (!histPrompt) return;
+  try {
+    await navigator.clipboard.writeText(histPrompt);
+    $('h-copy').textContent = '✓ disalin';
+    setTimeout(() => { $('h-copy').textContent = 'Salin prompt'; }, 2000);
+  } catch (e) { console.error('salin prompt gagal:', e); }
 };
 
 function connect() {

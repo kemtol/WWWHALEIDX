@@ -116,6 +116,7 @@ src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
 src/market.ts   papan pasar semua emiten + kandidat (Papan & payload AI)
 src/prompt.ts   bentuk payload AI + penggabungan template (dipakai tombol AI & CLI)
 src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
+src/aihist.ts   riwayat analisa AI di disk (logs/ai/), daftar + ambil satu
 src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
 public/index.html  halaman login (QR) + dashboard 3 kolom + mode riwayat
@@ -406,8 +407,42 @@ Biaya sekali panggil di bawah $0,005 — saldo $2,51 tidak bergerak setelah bebe
 
 ```
 GET /api/prompt[?date=YYYY-MM-DD][&n=15]  → { date, count, prompt } | { error }
-GET /api/ai    [?date=YYYY-MM-DD][&n=15]  → { date, count, result, usage, prompt, tookMs }
+GET /api/ai    [?date=YYYY-MM-DD][&n=15]  → { id, date, count, result, usage, prompt, tookMs }
                                           | { error, prompt }
+```
+
+### Riwayat analisa (tombol "Riwayat AI")
+
+Di kanan tombol AI. Modal penuh layar: daftar analisa lampau di kiri (dikelompokkan
+"Hari ini" / "Kemarin" / tanggal, terbaru dulu), hasilnya di kanan — pola sidebar yang
+sudah dikenal dari aplikasi chat. Yang terbaru langsung terbuka saat modal dibuka.
+
+Alasannya bukan kerapian: satu panggilan makan 2–3 menit dan uang, jadi jawabannya tidak
+boleh hilang karena app di-restart atau tab ditutup. Yang lebih penting, riwayat inilah
+yang memungkinkan menilai **apakah rekomendasi kemarin ternyata benar** — mustahil kalau
+hasilnya menguap. Prompt-nya ikut tersimpan, jadi data yang melahirkan rekomendasi itu
+bisa diperiksa ulang, bukan cuma kesimpulannya.
+
+Dua berkas terpisah di `logs/ai/` (`src/aihist.ts`), sengaja:
+
+| Berkas | Isi | Kenapa terpisah |
+|---|---|---|
+| `history.jsonl` | ringkasan + hasil, ±2 KB/entri | dibaca **utuh** tiap buka daftar |
+| `p/<id>.txt` | prompt, ±12 KB/entri | hanya dibaca kalau entrinya dipilih |
+
+Kalau prompt ikut di JSONL, membuka daftar berarti mem-parse belasan MB tanpa alasan.
+Retensi 500 entri terakhir. Daftar diurutkan dari `ts`, bukan urutan baris — penulisan
+memang selalu append kronologis, tapi bersandar pada itu berarti satu berkas yang pernah
+disunting tangan menghasilkan urutan salah tanpa gejala lain.
+
+Hasil live dan hasil riwayat dirender fungsi yang sama (`renderAiInto`), jadi analisa
+lama tidak pernah tampil beda dari yang baru keluar. Kode emiten di hasil bisa diklik:
+panel riwayat menutup, panel detail order flow terbuka.
+
+```
+GET /api/ai/list           → { entries: [{ id, ts, date, picks, symbols[], model }] }
+GET /api/ai/entry?id=<id>  → { id, ts, date, count, tookMs, usage, result, prompt }
+                           | { error }
 ```
 
 ## Detail per emiten (order flow)
