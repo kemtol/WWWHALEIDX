@@ -193,6 +193,20 @@
   .abody{flex:1;min-height:0;overflow:auto;padding:.9rem}
   .apasar{margin:0 0 .9rem;padding:.6rem .7rem;background:var(--panel);
           border-left:2px solid var(--accent);font-size:.86rem;line-height:1.5}
+  /* Penanda tiap analisa dalam benang sehari — tanpa ini analisa pagi dan siang
+     menyatu jadi satu tumpukan kartu tanpa batas yang jelas. */
+  .asep{display:flex;align-items:baseline;gap:.6rem;margin:1.2rem 0 .7rem;
+        font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .asep:first-child{margin-top:0}
+  .asep span{font-weight:600;color:var(--text)}
+  .asep i{font-style:normal;flex:1;min-width:0;text-align:right}
+  .ablock{border-top:1px solid var(--line);padding-top:.2rem;margin-top:.9rem}
+  .ablock:first-child{border-top:0;margin-top:0;padding-top:0}
+  /* Yang berubah sejak analisa sebelumnya — dibedakan tegas karena inilah alasan
+     benang sehari ada: pick yang hilang harus terlihat, bukan lenyap diam-diam. */
+  .achange{margin:0 0 .9rem;padding:.6rem .7rem;background:rgba(210,153,34,.1);
+           border-left:2px solid var(--warn);font-size:.84rem;line-height:1.55}
+  .achange b{color:var(--warn);font-size:.7rem;letter-spacing:.05em;text-transform:uppercase}
   .pick{border:1px solid var(--line);margin-bottom:.7rem}
   .pick .ph{display:flex;gap:.6rem;align-items:baseline;padding:.5rem .7rem;
             background:var(--panel);border-bottom:1px solid var(--line)}
@@ -215,18 +229,21 @@
      di aplikasi ini hijau dan merah sudah berarti beli/jual, dan memakainya untuk
      gelembung chat akan menyesatkan.
      Sudut tetap siku: seluruh halaman ini memang tanpa border-radius. */
-  .turns{margin-top:1rem;border-top:1px solid var(--line);padding-top:.9rem;
-         display:flex;flex-direction:column;gap:.55rem}
+  /* Tiap gelembung berdiri sendiri, TANPA wadah bergaris. Versi sebelumnya memberi
+     `.turns` sebuah border-top, dan setelah percakapan dipecah per item, garis itu
+     muncul di antara setiap pesan — layar jadi penuh garis mendatar. Posisi dan warna
+     sudah cukup memisahkan; pemisah antar-analisa ditangani `.ablock`. */
   .turn{font-size:.84rem;line-height:1.6;white-space:pre-wrap;padding:.5rem .7rem;
-        width:fit-content}
+        width:fit-content;margin:.55rem 0}
   /* Isi gelembung tetap rata kiri walau gelembungnya di kanan — persis WhatsApp.
      Teks rata kanan bikin tepi kiri bergerigi dan susah dibaca kalau lebih dari
-     sebaris; yang membuatnya terbaca "punya saya" adalah posisi dan warnanya. */
-  .turn.u{align-self:flex-end;max-width:80%;
+     sebaris; yang membuatnya terbaca "punya saya" adalah posisi dan warnanya.
+     `margin-left:auto` mendorongnya ke kanan tanpa menuntut wadah flex. */
+  .turn.u{margin-left:auto;max-width:80%;
           background:rgba(88,166,255,.13);border:1px solid rgba(88,166,255,.4)}
   /* Jawaban model diberi ruang lebih lebar: isinya analisa beberapa paragraf,
      bukan balasan sebaris. */
-  .turn.a{align-self:flex-start;max-width:92%;
+  .turn.a{margin-right:auto;max-width:92%;
           background:var(--panel);border:1px solid var(--line);color:var(--text)}
   .turn.pending{opacity:.6}
   /* Ditaruh SETELAH .turn.a: spesifisitasnya sama (0,2,0), jadi yang belakangan menang.
@@ -1450,20 +1467,16 @@ async function sendChat({ id, box, input, send, chat }) {
   input.value = '';
   input.style.height = '';
 
-  let turns = box.querySelector('.turns');
-  if (!turns) {
-    turns = document.createElement('div');
-    turns.className = 'turns';
-    box.appendChild(turns);
-  }
+  // Ditempel langsung ke wadah panel — tanpa pembungkus, supaya gelembung yang baru
+  // dikirim persis sama dengan yang dirender dari riwayat.
   const mine = document.createElement('div');
   mine.className = 'turn u';
   mine.textContent = text;
-  turns.appendChild(mine);
+  box.appendChild(mine);
   const wait = document.createElement('div');
   wait.className = 'turn a pending';
   wait.textContent = 'model sedang menjawab… 0 dtk';
-  turns.appendChild(wait);
+  box.appendChild(wait);
   box.scrollTop = box.scrollHeight;
 
   const t0 = Date.now();
@@ -1507,23 +1520,27 @@ function wireChat(input, onSend) {
   });
 }
 
-/** Baris keterangan di kepala panel — sama untuk hasil live maupun riwayat. */
-function aiNote(r) {
-  const u = r.usage || {};
+/** Baris keterangan di kepala panel: ringkasan SEHARI, bukan satu analisa. */
+function aiNote(thread) {
+  if (!thread || !thread.items) return '';
+  const an = thread.items.filter((i) => i.kind === 'analysis');
+  const last = an[an.length - 1];
   return [
-    r.count ? `${r.count} kandidat` : '',
-    u.model || '',
-    r.tookMs ? `${Math.round(r.tookMs / 1000)} dtk` : '',
-    u.promptTokens ? `${nf.format(u.promptTokens + (u.completionTokens || 0))} token` : '',
+    thread.date,
+    `${an.length} analisa`,
+    thread.items.filter((i) => i.kind === 'user').length
+      ? `${thread.items.filter((i) => i.kind === 'user').length} tanya` : '',
+    last?.usage?.model || '',
   ].filter(Boolean).join(' · ');
 }
 
-/** Render hasil ke wadah mana pun. Panel live dan panel riwayat memakai fungsi yang
- *  sama supaya hasil lama tidak pernah tampil beda dari hasil yang baru keluar.
- *  `onSym` menentukan apa yang ditutup sebelum membuka panel detail emiten. */
-function renderAiInto(box, r, onSym) {
-  const a = r.result;
-  if (!a) { box.innerHTML = ''; return; }
+const jamOf = (ts) => new Date(ts).toLocaleTimeString('id-ID',
+  { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
+
+/** Satu blok analisa. */
+function analysisHtml(it, urut) {
+  const a = it.result;
+  if (!a) return '';
   const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
 
   const picks = a.picks.length ? a.picks.map((p) => {
@@ -1545,13 +1562,31 @@ function renderAiInto(box, r, onSym) {
     </div>`;
   }).join('') : '<p class="hint">Model tidak menemukan setup yang layak. Itu jawaban yang sah.</p>';
 
-  box.innerHTML =
-    (a.pasar ? `<p class="apasar">${esc(a.pasar)}</p>` : '') + picks +
-    (a.dihindari.length
+  return `<div class="ablock">
+    <div class="asep"><span>Analisa ${urut} · ${jamOf(it.ts)}</span>
+      <i>${it.count} kandidat · ${Math.round((it.tookMs || 0) / 1000)} dtk</i></div>
+    ${a.pasar ? `<p class="apasar">${esc(a.pasar)}</p>` : ''}
+    ${a.perubahan ? `<p class="achange"><b>Berubah sejak analisa sebelumnya</b><br>${esc(a.perubahan)}</p>` : ''}
+    ${picks}
+    ${a.dihindari.length
       ? `<div class="avoid"><b>Dihindari</b><br>${a.dihindari
           .map((d) => `${esc(d.symbol)} — ${esc(d.kenapa)}`).join('<br>')}</div>`
-      : '')
-    + turnsHtml(r.turns);
+      : ''}
+  </div>`;
+}
+
+/** Render SELURUH benang sehari: analisa dan tanya-jawab berselang-seling, urut waktu.
+ *  Panel live dan panel riwayat memakai fungsi yang sama supaya percakapan lama tidak
+ *  pernah tampil beda dari yang baru keluar.
+ *  `onSym` menentukan apa yang ditutup sebelum membuka panel detail emiten. */
+function renderAiInto(box, thread, onSym) {
+  if (!thread || !thread.items) { box.innerHTML = ''; return; }
+  let urut = 0;
+  box.innerHTML = thread.items.map((it) => {
+    if (it.kind === 'analysis') return analysisHtml(it, ++urut);
+    return `<div class="turn ${it.kind === 'user' ? 'u' : 'a'}">${
+      it.kind === 'user' ? esc(it.text) : aiText(it.text)}</div>`;
+  }).join('');
 
   // Kode emiten di hasil bisa diklik, sama seperti di tabel mana pun.
   box.querySelectorAll('.sym').forEach((el) => {
@@ -1568,17 +1603,10 @@ function aiText(s) {
   return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
 }
 
-/** Tanya-jawab lanjutan di bawah analisa. */
-function turnsHtml(turns) {
-  if (!turns || !turns.length) return '';
-  return `<div class="turns">${turns.map((t) =>
-    `<div class="turn ${t.role === 'user' ? 'u' : 'a'}">${
-      t.role === 'user' ? esc(t.text) : aiText(t.text)}</div>`).join('')}</div>`;
-}
-
 function renderAi(r) {
-  $('a-note').textContent = aiNote(r);
-  renderAiInto($('a-body'), r, closeAi);
+  const thread = r.thread || r;
+  $('a-note').textContent = aiNote(thread);
+  renderAiInto($('a-body'), thread, closeAi);
   // Chat baru mungkin setelah analisanya tersimpan (butuh id untuk menyambung konteks).
   aiChatId = r.id || '';
   $('a-chat').style.display = aiChatId ? '' : 'none';
@@ -1698,17 +1726,17 @@ async function openAiEntry(id, el) {
   $('h-chat').style.display = 'none';
   histChatId = '';
   try {
-    const r = await (await fetch('/api/ai/entry?id=' + encodeURIComponent(id))).json();
-    if (r.error) throw new Error(r.error);
-    histPrompt = r.prompt || '';
-    $('h-note').textContent = `${jam(r.ts)} · ${aiNote(r)}`;
+    const t = await (await fetch('/api/ai/entry?id=' + encodeURIComponent(id))).json();
+    if (t.error) throw new Error(t.error);
+    histPrompt = t.lastPrompt || '';
+    $('h-note').textContent = aiNote(t);
     // Menutup panel riwayat dulu saat kode emiten diklik — kalau tidak, panel detail
     // muncul di belakangnya dan tidak terlihat.
-    renderAiInto($('h-main'), r, closeHist);
-    // Percakapan hanya bisa dilanjutkan kalau prompt aslinya masih ada — tanpa itu
-    // model kehilangan data yang melahirkan analisanya.
-    histChatId = r.prompt ? id : '';
-    $('h-chat').style.display = histChatId ? '' : 'none';
+    renderAiInto($('h-main'), t, closeHist);
+    histChatId = id;
+    $('h-chat').style.display = '';
+    // Percakapan dibuka di bawah — bagian terbaru yang dicari, bukan analisa pagi.
+    $('h-main').scrollTop = $('h-main').scrollHeight;
   } catch (e) {
     $('h-main').innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
   }
@@ -1730,16 +1758,16 @@ async function openHist() {
         + 'membuat analisa pertama. Hasilnya tersimpan di sini.</p>';
       return;
     }
-    let html = '', lastDay = '';
-    for (const e of list) {
-      const d = dayLabel(e.ts);
-      if (d !== lastDay) { html += `<div class="hday">${esc(d)}</div>`; lastDay = d; }
+    // Satu baris = satu HARI. Tidak ada lagi pengelompokan: barisnya sendiri sudah
+    // tanggal, jadi judul kelompok cuma akan mengulang isinya.
+    $('h-list').innerHTML = list.map((e) => {
       const sym = e.symbols.length ? e.symbols.join(' ') : 'tidak ada pick';
-      html += `<div class="hitem" data-id="${esc(e.id)}">
-        <span class="t">${jam(e.ts)} · ${e.picks} pick</span>
-        <span class="s" title="${esc(sym)}">${esc(sym)}</span></div>`;
-    }
-    $('h-list').innerHTML = html;
+      const bagian = [`${e.analyses} analisa`];
+      if (e.chats) bagian.push(`${e.chats} tanya`);
+      return `<div class="hitem" data-id="${esc(e.id)}">
+        <span class="t">${esc(dayLabel(e.ts))} · ${bagian.join(' · ')}</span>
+        <span class="s" title="pick terakhir: ${esc(sym)}">${esc(sym)}</span></div>`;
+    }).join('');
     $('h-list').querySelectorAll('.hitem').forEach((el) => {
       el.onclick = () => openAiEntry(el.dataset.id, el);
     });

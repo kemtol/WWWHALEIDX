@@ -11,7 +11,7 @@ import { SymbolTracker } from './symbol.js';
 import { MarketBoard, buildCandidates, mergeRows } from './market.js';
 import { buildPayload, renderPrompt } from './prompt.js';
 import { askAi, chatAi, aiConfigured, type ChatMsg } from './ai.js';
-import { AiHistory, aiEntryId } from './aihist.js';
+import { AiHistory } from './aihist.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
 /**
@@ -220,6 +220,33 @@ function candidatesFor(date: string, n: number) {
   };
 }
 
+/**
+ * Percakapan sehari sebagai deret pesan untuk model.
+ *
+ * Analisa lama diwakili payload aslinya (dibaca dari `p/`) + jawaban JSON-nya, jadi
+ * model bisa membandingkan angka lama dengan angka baru, bukan cuma kesimpulannya.
+ * Payload-payload itu identik di tiap panggilan berikutnya, jadi cache prompt DeepSeek
+ * menanggung sebagian besar biayanya.
+ *
+ * Payload yang berkasnya sudah hilang diganti penanda, bukan dilewatkan diam-diam:
+ * kalau jawaban asisten muncul tanpa pertanyaan yang mendahuluinya, urutan peran
+ * jadi kacau dan model bisa salah membaca siapa mengatakan apa.
+ */
+function threadMessages(thread: ReturnType<AiHistory['get']>): ChatMsg[] {
+  if (!thread) return [];
+  const out: ChatMsg[] = [];
+  for (const it of thread.items) {
+    if (it.kind === 'analysis') {
+      const p = aiHistory.readPrompt(it.promptRef);
+      out.push({ role: 'user', content: p ?? '[payload analisa ini sudah tidak tersimpan]' });
+      out.push({ role: 'assistant', content: JSON.stringify(it.result) });
+    } else {
+      out.push({ role: it.kind, content: it.text });
+    }
+  }
+  return out;
+}
+
 ui.onApi = async (path, q, reqBody) => {
   if (path === '/api/days') {
     return archive.days().map((d) => ({ date: d, bytes: archive.sizeOf(d) }));
@@ -261,27 +288,35 @@ ui.onApi = async (path, q, reqBody) => {
     const n = Math.min(Math.max(Number(q.get('n')) || BOARD_N, 1), 30);
     const c = candidatesFor(date, n);
     if (!c.rows.length) return { error: `belum ada kandidat untuk ${date}` };
+
+    // Sudah pernah menganalisa hari ini? Kalau ya, ini LANJUTAN: template berbeda yang
+    // menuntut model menjelaskan apa yang berubah — terutama pick yang dikeluarkan.
+    const thread = aiHistory.get(date);
+    const history = threadMessages(thread);
+    const lanjutan = history.length > 0;
     let prompt: string;
     try {
-      prompt = renderPrompt(buildPayload(c.rows, { date, recordedFrom: c.recordedFrom }));
+      prompt = renderPrompt(
+        buildPayload(c.rows, { date, recordedFrom: c.recordedFrom }),
+        lanjutan ? 'scalp-lanjut.md' : 'scalp.md',
+      );
     } catch (e) {
       return { error: (e as Error).message };
     }
-    if (path === '/api/prompt') return { date, count: c.rows.length, prompt };
+    if (path === '/api/prompt') return { date, count: c.rows.length, prompt, lanjutan };
 
     // /api/ai — panggil model, hasilnya dirender jadi panel di halaman.
     if (!aiConfigured()) return { error: 'kunci AI belum diset (lihat scanner/.env.example)' };
     const t0 = Date.now();
     try {
-      const { result, usage } = await askAi(prompt);
+      const { result, usage } = await askAi(prompt, history);
       const tookMs = Date.now() - t0;
-      log(`AI: ${result.picks.length} pick · ${usage.promptTokens}+${usage.completionTokens} token`
-        + ` · ${Math.round(tookMs / 1000)} dtk`);
-      const id = aiEntryId();
-      aiHistory.save({ id, ts: Date.now(), date, count: c.rows.length, tookMs, usage, result }, prompt);
-      // `prompt` ikut dikirim juga saat berhasil supaya tombol "Salin prompt" di modal
-      // tetap berguna — mis. untuk membandingkan jawaban model lain atas data yang sama.
-      return { id, date, count: c.rows.length, result, usage, prompt, tookMs };
+      log(`AI${lanjutan ? ' (lanjutan)' : ''}: ${result.picks.length} pick`
+        + ` · ${usage.promptTokens}+${usage.completionTokens} token · ${Math.round(tookMs / 1000)} dtk`);
+      aiHistory.addAnalysis(date, { ts: Date.now(), count: c.rows.length, tookMs, usage, result }, prompt);
+      // Seluruh benang hari itu dikembalikan, bukan cuma hasil baru: halaman menampilkan
+      // percakapan sehari penuh, dan analisa baru harus muncul menyambung yang lama.
+      return { date, id: date, thread: aiHistory.get(date), prompt, lanjutan };
     } catch (e) {
       const msg = (e as Error).message;
       log(`AI gagal: ${msg}`);
@@ -291,41 +326,40 @@ ui.onApi = async (path, q, reqBody) => {
     }
   }
 
-  // Riwayat analisa AI. Daftar sengaja tanpa `result` penuh — kolom kiri hanya butuh
-  // waktu, jumlah pick, dan kodenya; detail diambil saat barisnya dipilih.
+  // Riwayat: satu baris per HARI, bukan per klik. Daftar sengaja tanpa isi penuh —
+  // kolom kiri hanya butuh tanggal, jumlah analisa, dan pick terakhirnya.
   if (path === '/api/ai/list') return { entries: aiHistory.list() };
 
   if (path === '/api/ai/entry') {
-    const e = aiHistory.get((q.get('id') ?? '').trim());
-    return e ?? { error: 'riwayat tidak ditemukan' };
+    const t = aiHistory.get((q.get('id') ?? '').trim());
+    if (!t) return { error: 'riwayat tidak ditemukan' };
+    // Payload analisa TERAKHIR ikut dikirim untuk tombol "Salin prompt" — yang lebih
+    // lama tidak, supaya balasan ini tidak membengkak jadi puluhan KB tanpa diminta.
+    const last = [...t.items].reverse().find((i) => i.kind === 'analysis');
+    const lastPrompt = last && last.kind === 'analysis' ? aiHistory.readPrompt(last.promptRef) : null;
+    return { ...t, lastPrompt };
   }
 
-  // Tanya-jawab lanjutan atas satu analisa. POST karena pertanyaannya bisa panjang.
+  // Tanya-jawab lanjutan dalam benang satu hari. POST karena pertanyaannya bisa panjang.
   if (path === '/api/ai/chat') {
     if (!aiConfigured()) return { error: 'kunci AI belum diset (lihat scanner/.env.example)' };
     const b = (reqBody ?? {}) as { id?: unknown; message?: unknown };
     const id = typeof b.id === 'string' ? b.id.trim() : '';
     const message = typeof b.message === 'string' ? b.message.trim() : '';
     if (!message) return { error: 'pesan kosong' };
-    const e = aiHistory.get(id);
-    if (!e) return { error: 'riwayat tidak ditemukan' };
-    if (!e.prompt) return { error: 'prompt asli analisa ini sudah tidak ada, tidak bisa dilanjutkan' };
+    const thread = aiHistory.get(id);
+    if (!thread) return { error: 'riwayat tidak ditemukan' };
 
     // Konteks disusun ulang dari yang TERSIMPAN, bukan dari apa pun yang dikirim
-    // halaman: prompt asli + jawaban awal + seluruh tanya-jawab sesudahnya. Dengan
-    // begitu model melihat percakapan yang sama persis dengan yang dibaca di layar,
-    // dan halaman tidak bisa menyelundupkan konteks yang tidak pernah terjadi.
-    const msgs: ChatMsg[] = [
-      { role: 'user', content: e.prompt },
-      { role: 'assistant', content: JSON.stringify(e.result) },
-      ...(e.turns ?? []).map((t) => ({ role: t.role, content: t.text })),
-      { role: 'user', content: message },
-    ];
+    // halaman: seluruh benang hari itu, urut. Dengan begitu model melihat percakapan
+    // yang sama persis dengan yang dibaca di layar, dan halaman tidak bisa
+    // menyelundupkan konteks yang tidak pernah terjadi.
+    const msgs: ChatMsg[] = [...threadMessages(thread), { role: 'user', content: message }];
     const t0 = Date.now();
     try {
       const { text, usage } = await chatAi(msgs);
       const now = Date.now();
-      aiHistory.appendTurns(id, [
+      aiHistory.addTurns(id, [
         { role: 'user', text: message, ts: now },
         { role: 'assistant', text, ts: now },
       ]);

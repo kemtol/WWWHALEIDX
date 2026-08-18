@@ -1,52 +1,74 @@
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AiResult, AiUsage } from './ai.js';
 
 /**
- * Riwayat analisa AI di disk. Alasannya bukan kerapian: satu panggilan makan 2-3 menit
- * dan uang, jadi jawabannya tidak boleh hilang hanya karena app di-restart atau tab
- * ditutup. Yang lebih penting, riwayat inilah yang memungkinkan menilai apakah
- * rekomendasi kemarin ternyata benar — mustahil kalau hasilnya menguap.
+ * Riwayat analisa AI di disk. **Satu hari = satu benang percakapan**, bukan satu entri
+ * per klik tombol.
+ *
+ * Ini bukan soal kerapian. Kalau tiap klik memulai percakapan baru, model tidak tahu ia
+ * pernah merekomendasikan DSSA pagi tadi — jadi saat DSSA hilang dari analisa siang, ia
+ * diam saja dan pembacanya bertanya-tanya. Padahal HILANGNYA sebuah pick sering lebih
+ * berguna daripada pick barunya. Dengan satu benang per hari, analisa siang melihat
+ * rekomendasi paginya sendiri dan bisa menjelaskan apa yang berubah.
  *
  * Dua berkas terpisah, sengaja:
- *   history.jsonl   ringkasan + hasil (±2 KB/entri) — dibaca UTUH tiap buka daftar
- *   p/<id>.txt      prompt (±12 KB/entri) — hanya dibaca kalau diminta
- * Kalau prompt ikut di JSONL, membuka daftar berarti mem-parse belasan MB tanpa alasan.
+ *   history.jsonl        satu baris per HARI: seluruh item hari itu (±2-10 KB)
+ *   p/<date>-<n>.txt     payload tiap analisa (±12 KB) — hanya dibaca saat menyusun
+ *                        konteks atau saat penggunanya minta
+ * Kalau payload ikut di JSONL, membuka daftar berarti mem-parse belasan MB tanpa alasan.
  */
 
-const MAX_ENTRIES = 500;
+const MAX_DAYS = 120;
 
-/** Satu giliran percakapan lanjutan SETELAH analisa awal. Analisa awalnya sendiri tidak
- *  disimpan di sini — ia sudah ada terstruktur di `result`, dan menyalinnya sebagai teks
- *  berarti dua sumber kebenaran untuk isi yang sama. */
-export interface AiTurn {
-  role: 'user' | 'assistant';
-  text: string;
-  ts: number;
-}
+/** Satu langkah dalam percakapan sehari. Analisa dan tanya-jawab hidup di deret yang
+ *  sama supaya urutannya persis seperti yang terjadi — analisa pagi, tanya-jawab,
+ *  analisa siang, tanya-jawab lagi. */
+export type AiItem =
+  | {
+      kind: 'analysis';
+      ts: number;
+      count: number;
+      tookMs: number;
+      usage: AiUsage;
+      result: AiResult;
+      /** Nama berkas payload di `p/`, tanpa direktori. */
+      promptRef: string;
+    }
+  | { kind: 'user'; ts: number; text: string }
+  | { kind: 'assistant'; ts: number; text: string };
 
-export interface AiEntry {
-  /** `YYYY-MM-DDTHH-MM-SS` waktu WIB — sekaligus urutan kronologisnya. */
+export interface AiThread {
+  /** Tanggal `YYYY-MM-DD` — sekaligus id benangnya. */
   id: string;
-  ts: number;
-  /** Tanggal data yang dianalisa (bisa beda dari `ts` kalau memeriksa arsip lampau). */
   date: string;
-  count: number;
-  tookMs: number;
-  usage: AiUsage;
-  result: AiResult;
-  /** Tanya-jawab lanjutan. Entri lama tidak punya field ini — perlakukan sebagai []. */
-  turns?: AiTurn[];
+  /** Kegiatan pertama dan terakhir hari itu. */
+  ts: number;
+  updated: number;
+  items: AiItem[];
 }
 
-/** Baris daftar — tanpa `result` penuh, cukup untuk kolom kiri. */
+/** Baris daftar — tanpa isi penuh, cukup untuk kolom kiri. */
 export interface AiSummary {
   id: string;
-  ts: number;
   date: string;
-  picks: number;
+  ts: number;
+  updated: number;
+  /** Berapa kali tombol AI ditekan hari itu. */
+  analyses: number;
+  /** Berapa tanya-jawab lanjutan. */
+  chats: number;
+  /** Pick dari analisa TERAKHIR hari itu — yang paling relevan sekarang. */
   symbols: string[];
   model: string;
+}
+
+/** Bentuk lama: satu entri per klik, `result` tunggal + `turns[]`. Dibaca sekali lalu
+ *  diubah ke bentuk benang supaya riwayat yang sudah ada tidak perlu dibuang. */
+interface LegacyEntry {
+  id: string; ts: number; date: string; count: number; tookMs: number;
+  usage: AiUsage; result: AiResult;
+  turns?: { role: 'user' | 'assistant'; text: string; ts: number }[];
 }
 
 export class AiHistory {
@@ -69,88 +91,108 @@ export class AiHistory {
     }
   }
 
-  /** Simpan satu hasil. Gagal menyimpan TIDAK boleh menjatuhkan panggilan yang sudah
-   *  berhasil dan sudah dibayar — jawabannya tetap dikirim ke halaman. */
-  save(entry: AiEntry, prompt: string): void {
-    try {
-      appendFileSync(this.path, JSON.stringify(entry) + '\n');
-      writeFileSync(join(this.promptDir, `${entry.id}.txt`), prompt);
-      this.trim();
-    } catch { /* diabaikan dengan sengaja */ }
+  /** Seluruh benang, terlama dulu. Entri bentuk lama ikut dinaikkan ke bentuk benang di
+   *  sini — hanya di memori; berkasnya baru berubah saat ada penulisan berikutnya. */
+  private threads(): AiThread[] {
+    const byDate = new Map<string, AiThread>();
+    for (const l of this.lines()) {
+      let raw: any;
+      try { raw = JSON.parse(l); } catch { continue; }   // baris rusak dilewati
+
+      if (Array.isArray(raw?.items)) {
+        byDate.set(raw.id, raw as AiThread);
+        continue;
+      }
+      // ---- bentuk lama -> benang
+      const e = raw as LegacyEntry;
+      if (!e?.date || !e?.result) continue;
+      const items: AiItem[] = [{
+        kind: 'analysis', ts: e.ts, count: e.count, tookMs: e.tookMs,
+        usage: e.usage, result: e.result, promptRef: `${e.id}.txt`,
+      }];
+      for (const t of e.turns ?? []) items.push({ kind: t.role, ts: t.ts, text: t.text });
+      const existing = byDate.get(e.date);
+      if (existing) {
+        existing.items.push(...items);
+        existing.updated = Math.max(existing.updated, e.ts);
+      } else {
+        byDate.set(e.date, {
+          id: e.date, date: e.date, ts: e.ts,
+          updated: items[items.length - 1]?.ts ?? e.ts, items,
+        });
+      }
+    }
+    // Item diurutkan waktu: penggabungan beberapa entri lama ke satu hari bisa
+    // menghasilkan urutan yang tidak kronologis.
+    for (const t of byDate.values()) t.items.sort((a, b) => a.ts - b.ts);
+    return [...byDate.values()].sort((a, b) => a.ts - b.ts);
   }
 
-  /** Buang entri terlama kalau sudah lewat batas. Berkas prompt-nya dibiarkan —
-   *  menghapusnya menuntut readdir tiap simpan, dan ukurannya tidak seberapa. */
-  private trim(): void {
-    const ls = this.lines();
-    if (ls.length <= MAX_ENTRIES) return;
-    writeFileSync(this.path, ls.slice(-MAX_ENTRIES).join('\n') + '\n');
+  private writeAll(threads: AiThread[]): boolean {
+    try {
+      const keep = threads.slice(-MAX_DAYS);
+      writeFileSync(this.path, keep.map((t) => JSON.stringify(t)).join('\n') + '\n');
+      return true;
+    } catch {
+      return false;   // gagal menyimpan tidak boleh menjatuhkan panggilan yang sudah dibayar
+    }
   }
 
   /** Terbaru dulu — itu yang hampir selalu dicari. */
   list(): AiSummary[] {
-    const out: AiSummary[] = [];
-    for (const l of this.lines()) {
-      try {
-        const e = JSON.parse(l) as AiEntry;
-        out.push({
-          id: e.id, ts: e.ts, date: e.date,
-          picks: e.result?.picks?.length ?? 0,
-          symbols: (e.result?.picks ?? []).map((p) => p.symbol),
-          model: e.usage?.model ?? '',
-        });
-      } catch { /* baris rusak dilewati, bukan alasan menggagalkan seluruh daftar */ }
+    return this.threads().map((t) => {
+      const analyses = t.items.filter((i) => i.kind === 'analysis') as Extract<AiItem, { kind: 'analysis' }>[];
+      const last = analyses[analyses.length - 1];
+      return {
+        id: t.id, date: t.date, ts: t.ts, updated: t.updated,
+        analyses: analyses.length,
+        chats: t.items.filter((i) => i.kind === 'user').length,
+        symbols: last?.result?.picks?.map((p) => p.symbol) ?? [],
+        model: last?.usage?.model ?? '',
+      };
+    }).sort((a, b) => b.updated - a.updated);
+  }
+
+  get(date: string): AiThread | null {
+    return this.threads().find((t) => t.id === date) ?? null;
+  }
+
+  /** Payload satu analisa. `ref` selalu berasal dari item yang memang ada di riwayat,
+   *  jadi tidak bisa dipakai menjangkau berkas di luar direktori ini. */
+  readPrompt(ref: string): string | null {
+    if (!/^[\w.-]+\.txt$/.test(ref)) return null;
+    try { return readFileSync(join(this.promptDir, ref), 'utf8'); } catch { return null; }
+  }
+
+  /** Tambah satu analisa ke benang hari itu, membuat benangnya kalau belum ada. */
+  addAnalysis(
+    date: string,
+    a: { ts: number; count: number; tookMs: number; usage: AiUsage; result: AiResult },
+    prompt: string,
+  ): void {
+    const threads = this.threads();
+    let t = threads.find((x) => x.id === date);
+    if (!t) {
+      t = { id: date, date, ts: a.ts, updated: a.ts, items: [] };
+      threads.push(t);
+      threads.sort((x, y) => x.ts - y.ts);
     }
-    // Diurutkan dari `ts`, bukan dari urutan baris. Penulisan memang selalu append
-    // kronologis, tapi bersandar pada itu berarti satu berkas yang pernah disunting
-    // tangan menghasilkan daftar yang urutannya salah tanpa gejala lain.
-    return out.sort((a, b) => b.ts - a.ts);
+    const n = t.items.filter((i) => i.kind === 'analysis').length + 1;
+    const promptRef = `${date}-${n}.txt`;
+    try { writeFileSync(join(this.promptDir, promptRef), prompt); } catch { /* payload hilang, analisanya tetap tersimpan */ }
+    t.items.push({ kind: 'analysis', ts: a.ts, count: a.count, tookMs: a.tookMs,
+      usage: a.usage, result: a.result, promptRef });
+    t.updated = a.ts;
+    this.writeAll(threads);
   }
 
-  /** Tambah giliran percakapan ke entri yang sudah ada.
-   *
-   *  Barisnya ditulis ulang di tempat, bukan di-append sebagai baris baru: satu id harus
-   *  tetap satu baris, kalau tidak `get()` mengembalikan versi yang mana pun ditemukan
-   *  lebih dulu dan percakapannya terpecah. Menulis ulang seluruh berkas untuk 500 entri
-   *  (±1 MB) jauh lebih murah daripada bug seperti itu. */
-  appendTurns(id: string, turns: AiTurn[]): boolean {
-    const ls = this.lines();
-    let found = false;
-    const out = ls.map((l) => {
-      try {
-        const e = JSON.parse(l) as AiEntry;
-        if (e.id !== id) return l;
-        found = true;
-        return JSON.stringify({ ...e, turns: [...(e.turns ?? []), ...turns] });
-      } catch {
-        return l;   // baris rusak dibiarkan apa adanya, jangan sampai ikut terhapus
-      }
-    });
-    if (!found) return false;
-    try { writeFileSync(this.path, out.join('\n') + '\n'); return true; }
-    catch { return false; }
+  /** Tambah tanya-jawab ke benang hari itu. */
+  addTurns(date: string, turns: { role: 'user' | 'assistant'; text: string; ts: number }[]): boolean {
+    const threads = this.threads();
+    const t = threads.find((x) => x.id === date);
+    if (!t) return false;
+    for (const x of turns) t.items.push({ kind: x.role, ts: x.ts, text: x.text });
+    t.updated = turns[turns.length - 1]?.ts ?? t.updated;
+    return this.writeAll(threads);
   }
-
-  get(id: string): (AiEntry & { prompt: string | null }) | null {
-    for (const l of this.lines()) {
-      try {
-        const e = JSON.parse(l) as AiEntry;
-        if (e.id !== id) continue;
-        let prompt: string | null = null;
-        // `id` sudah dicocokkan dengan entri yang benar-benar ada di riwayat, jadi tidak
-        // bisa dipakai menjangkau berkas di luar direktori ini.
-        try { prompt = readFileSync(join(this.promptDir, `${id}.txt`), 'utf8'); } catch { /* prompt lama sudah tidak ada */ }
-        return { ...e, prompt };
-      } catch { /* lanjut */ }
-    }
-    return null;
-  }
-}
-
-/** `YYYY-MM-DDTHH-MM-SS` waktu WIB. Dipakai sebagai id sekaligus kunci urut. */
-export function aiEntryId(d = new Date()): string {
-  const wib = new Date(d.getTime() + (7 * 60 + d.getTimezoneOffset()) * 60_000);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${wib.getFullYear()}-${p(wib.getMonth() + 1)}-${p(wib.getDate())}`
-    + `T${p(wib.getHours())}-${p(wib.getMinutes())}-${p(wib.getSeconds())}`;
 }

@@ -30,6 +30,9 @@ export interface Pick {
 
 export interface AiResult {
   pasar: string;
+  /** Hanya terisi pada analisa lanjutan: apa yang berubah sejak analisa sebelumnya di
+   *  hari yang sama, terutama pick yang dikeluarkan beserta alasannya. */
+  perubahan?: string;
   picks: Pick[];
   dihindari: { symbol: string; kenapa: string }[];
 }
@@ -59,6 +62,7 @@ function normalize(raw: unknown): AiResult {
   const avoid = Array.isArray(o.dihindari) ? o.dihindari : [];
   return {
     pasar: str(o.pasar),
+    ...(str(o.perubahan) ? { perubahan: str(o.perubahan) } : {}),
     picks: picks.slice(0, 5).map((p) => {
       const q = (p ?? {}) as Record<string, unknown>;
       return {
@@ -134,8 +138,13 @@ async function call(messages: ChatMsg[], json: boolean): Promise<{ text: string;
   };
 }
 
-export async function askAi(prompt: string): Promise<{ result: AiResult; usage: AiUsage }> {
-  const { text, usage } = await call([{ role: 'user', content: prompt }], true);
+/** Analisa. `history` berisi percakapan hari itu sejauh ini (kosong = analisa pertama);
+ *  `prompt` adalah giliran terakhir yang memuat data terbaru. */
+export async function askAi(
+  prompt: string,
+  history: ChatMsg[] = [],
+): Promise<{ result: AiResult; usage: AiUsage }> {
+  const { text, usage } = await call([...history, { role: 'user', content: prompt }], true);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
