@@ -54,7 +54,7 @@ IPOT WebSocket ──> COLLECTOR (src/collector.ts)
                      └──(unix socket, src/bus.ts)──> APP (src/app.ts)
                                                        filters.ts  burst + HAKA/HAKI
                                                        symbol.ts   delta + footprint
-                                                       market.ts   papan pasar (Papan)
+                                                       market.ts   papan pasar (kolom Kandidat)
                                                        history.ts  query arsip
                                                        server.ts   UI + /api/*
                                                           │
@@ -72,8 +72,9 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
 
 - **Login QR** — scan dari HP (IPOT → Member Area → Security → Login to IPOT Web),
   tanpa endpoint HTTP terpisah, semua lewat satu WebSocket.
-- **Live trade** — mengalir ke tabel begitu login berhasil, halaman otomatis pindah
-  dari layar QR ke dashboard.
+- **Live trade** — mengalir ke tabel begitu login berhasil. Panel QR duduk di dalam
+  kolom Live Trade dan digantikan tabel saat login; dashboard tidak pernah tergerbang,
+  karena riwayat/Kandidat/AI semuanya jalan dari arsip tanpa sesi.
 - **Filter transaksi** — emiten (watchlist), nilai minimum, lot minimum, papan
   (RG/NG/TN), rentang harga, rentang % perubahan, rentang % terhadap VWAP, jam, dan
   **burst** (N transaksi dalam T detik, jendela bergulir per emiten).
@@ -87,12 +88,12 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
   sisinya tidak disebutkan feed tetap **tidak ditebak** arahnya — prinsip lama yang tidak
   berubah, karena menebak lewat pewarisan arah terbukti membalik kesimpulan pada 28% emiten.
 - **Peringatan belum login** — bursa buka tapi scanner tidak login = data hilang diam-diam.
-  Sekarang ada notifikasi desktop, peringatan journal berkala, dan banner di layar QR
-  berisi hitungan menit yang tidak terekam.
+  Sekarang ada notifikasi desktop, peringatan journal berkala, dan penanda `⚠ N mnt`
+  di header dashboard berisi hitungan menit yang tidak terekam.
 - **Arsip harian & riwayat** — setiap transaksi disimpan mentah per hari (~77 MB pada
   hari yang mengalir penuh; hari lampau dipadatkan gzip ~5,4×), bisa dilihat mundur per
   rentang jam beserta peringkat emiten teramai.
-- **Analisa AI + percakapan sehari** — tombol AI di papan mengirim kandidat yang sedang
+- **Analisa AI + percakapan sehari** — tombol AI di kolom Kandidat mengirim kandidat yang sedang
   tampil ke DeepSeek, hasilnya dirender jadi pick dengan entry/invalidasi/target. **Satu
   hari = satu benang percakapan**: klik berikutnya menyambung, bukan memulai baru, jadi
   model menjelaskan pick yang dikeluarkan alih-alih menghilangkannya diam-diam. Ada
@@ -105,17 +106,17 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
   breakout-nya, pita VWAP ±1σ/±2σ dengan posisi harga dalam satuan σ, dan laju tape
   (transaksi/detik dibanding rata-rata hari ini). Semua dari feed LT, tanpa OB2. Yang
   bergantung pada perekaman sejak pembukaan diberi tanda kalau arsipnya tidak lengkap.
-- **Papan** — kolom kanan: SATU tabel yang menggabungkan peringkat kandidat (hari
+- **Kandidat** — kolom kanan: SATU tabel yang menggabungkan peringkat kandidat (hari
   penuh: nilai, chg%, HAKA%, delta, zVwap, laju tape, divergensi, POC/value area)
   dengan kolom tekanan jendela bergulir 1m/5m/15m (nilai jendela, H vs K, HAKA%,
   arah, bukti). Baris = union peringkat nilai harian dan nilai jendela; live tiap
   2 detik, sort per kolom, klik baris membuka panel detail. Saat kolom filter
-  diciutkan, kolom tengah & kanan bagi rata (50/50) supaya seluruh kolom Papan
+  diciutkan, kolom tengah & kanan bagi rata (50/50) supaya seluruh kolom Kandidat
   muat; kalau layar lebih sempit, tabel scroll horizontal tanpa memotong angka.
   Di mode riwayat menampilkan tanggal yang dipilih dari arsip (kolom jendela
   kosong).
-- **Logout** — memutus sesi di server (bukan cuma sembunyikan tampilan), kembali ke
-  layar QR.
+- **Logout** — memutus sesi di server (bukan cuma sembunyikan tampilan); kolom Live
+  Trade kembali menampilkan panel QR.
 
 ## 5. Sinyal scalping & rekomendasi AI
 
@@ -131,7 +132,7 @@ pemakaian nyata: sekitar VWAP, mendekati high/low hari ini, penutupan kemarin, d
 angka bulat psikologis.
 
 Sudah ada: indikator intraday di panel detail (pita VWAP ±1σ/±2σ, opening range +
-status breakout, POC & value area 70%, divergensi harga–delta) dan **Papan** —
+status breakout, POC & value area 70%, divergensi harga–delta) dan **Kandidat** —
 satu tabel peringkat lintas emiten di kolom kanan (kandidat hari penuh + tekanan
 jendela), live tiap 2 detik.
 Belum ada: penandaan eksplisit "sedang di area penting" per baris (mis. "di value
@@ -183,7 +184,7 @@ footprint 3 level teramai. "Analisa semua isi file" pada requirement dibaca seba
 "semua sinyal penting dari file"; ringkasannya selalu bisa diperiksa ulang karena arsip
 mentahnya tetap ada.
 
-Kandidatnya diambil dari `candidatesFor()` yang sama dengan tabel Papan dan diikat
+Kandidatnya diambil dari `candidatesFor()` yang sama dengan tabel Kandidat dan diikat
 konstanta `BOARD_N` yang sama — **yang dianalisa model dijamin persis yang dilihat
 manusia di layar**. Payload analisa sebelumnya ikut dikirim sebagai konteks pada analisa
 lanjutan, jadi model membandingkan angka, bukan cuma kesimpulan; prefiksnya identik tiap

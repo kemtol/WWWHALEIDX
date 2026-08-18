@@ -5,7 +5,7 @@ Login QR ke IPOT + running trade live di halaman lokal.
 ## Login duduk di kolom Live Trade, bukan menggerbang aplikasi
 
 Dashboard **selalu** bisa dipakai. Login hanya syarat untuk satu hal: aliran transaksi
-**live**. Riwayat, Papan, detail per emiten, dan analisa AI semuanya membaca arsip dari
+**live**. Riwayat, Kandidat, detail per emiten, dan analisa AI semuanya membaca arsip dari
 disk dan jalan penuh tanpa sesi IPOT — terbukti: dengan collector dalam keadaan belum
 login, `/api/candidates` tetap mengembalikan 7 KB, `/api/history` 14 KB, `/api/symbol`
 26 KB.
@@ -142,7 +142,7 @@ src/filters.ts  filter transaksi, deteksi burst, tekanan HAKA/HAKI
 src/archive.ts  arsip transaksi harian (logs/lt/), rotasi + retensi
 src/history.ts  query rentang waktu dari arsip + ringkasan per emiten
 src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
-src/market.ts   papan pasar semua emiten + kandidat (Papan & payload AI)
+src/market.ts   papan pasar semua emiten + kandidat (kolom Kandidat & payload AI)
 src/prompt.ts   bentuk payload AI + penggabungan template (dipakai tombol AI & CLI)
 src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
 src/aihist.ts   riwayat AI: satu benang per hari (logs/ai/), migrasi bentuk lama
@@ -335,7 +335,7 @@ Yang masih berlaku dari keputusan lama: arah transaksi yang tidak diketahui **ti
 ditebak**. Dulu pewarisan arah dari transaksi sebelumnya terbukti membalik kesimpulan
 pada 28% emiten, dan prinsip itu tidak berubah — hanya sumber datanya yang jadi lebih baik.
 
-## Papan (kandidat + tekanan, satu tabel)
+## Kandidat (peringkat + tekanan, satu tabel)
 
 Kolom kanan menampilkan SATU tabel peringkat yang menggabungkan dua sisi:
 
@@ -368,7 +368,7 @@ Baris = **union** peringkat nilai harian dan nilai jendela: emiten yang ramai pa
 tapi sepi sekarang tetap tampil, dan yang baru memanas sekarang ikut muncul walau
 nilai hariannya kecil. Klik judul kolom untuk mengurutkan; klik kode emiten membuka
 panel detail. Saat kolom filter diciutkan (burger), kolom tengah & kanan **bagi rata
-50/50** sehingga seluruh kolom Papan muat; kalau layar lebih sempit, tabel scroll
+50/50** sehingga seluruh kolom Kandidat muat; kalau layar lebih sempit, tabel scroll
 horizontal tanpa memotong angka.
 
 - **Live**: diperbarui tiap 2 detik — harian dari papan pasar di memori

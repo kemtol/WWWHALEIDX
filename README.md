@@ -34,7 +34,7 @@ Dev cepat tanpa TLS: `cd scanner && npm run collector` + `npm run app`
 |---|---|
 | **Live trade + filter** | nilai, lot, papan, harga, %, vs VWAP, jam, burst |
 | **HAKA/HAKI** | sisi agresor dibaca **langsung dari feed**, bukan tebakan tick rule |
-| **Papan** | satu tabel peringkat: kandidat hari penuh + tekanan jendela 1m/5m/15m |
+| **Kandidat** | satu tabel peringkat: kandidat hari penuh + tekanan jendela 1m/5m/15m |
 | **Detail per emiten** | footprint per harga, delta kumulatif, POC/value area, pita VWAP, opening range, divergensi, laju tape |
 | **Arsip + riwayat** | tiap transaksi disimpan mentah per hari, bisa ditelusuri mundur |
 | **Analisa AI** | DeepSeek menganalisa kandidat → pick dengan entry/invalidasi/target |

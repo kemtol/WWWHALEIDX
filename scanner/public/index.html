@@ -551,7 +551,7 @@
           </ol>
           <p class="lost hidden" id="lost"></p>
           <p class="hint" style="margin:1rem 0 0">
-            Hanya transaksi <b>live</b> yang butuh login. <b>Riwayat</b>, <b>Papan</b>,
+            Hanya transaksi <b>live</b> yang butuh login. <b>Riwayat</b>, <b>Kandidat</b>,
             dan <b>analisa AI</b> di sebelah tetap jalan dari arsip.
           </p>
           <p style="margin:1.2rem 0 0">
@@ -569,7 +569,12 @@
   <!-- ── KANAN: papan — kandidat + tekanan dalam satu tabel ────── -->
   <section id="col-right">
     <div class="colhead">
-      <span>Papan</span>
+      <!-- "Kandidat", bukan "Papan": di layar ini "papan" sudah berarti papan bursa
+           (RG/NG/TN) — ada kolom tabel dan grup filter dengan nama itu. Satu kata dua
+           arti di layar yang sama. Istilah IDX yang baku menang; nama karangan yang
+           mengalah. "Kandidat" juga sudah jadi bahasa kodenya sendiri
+           (buildCandidates, /api/candidates, payload AI). -->
+      <span>Kandidat</span>
       <span class="row" style="margin-left:auto" id="p-wins">
         <button data-win="60">1m</button>
         <button data-win="300">5m</button>
@@ -1874,7 +1879,15 @@ function connect() {
     if (m.type !== 'state') return;
     // phase kosong = sengaja dibersihkan (mis. setelah login berhasil) — kosongkan
     // juga teksnya, bukan dibiarkan menempel.
-    if ('phase' in m) $('phase').textContent = m.phase || '';
+    //
+    // Sebagian nilainya cuma mengulang apa yang sudah terpampang besar di panel QR
+    // tepat di bawah header ("siap login", "menunggu scan"), jadi tidak ditampilkan.
+    // Yang lolos hanya keadaan yang TIDAK terlihat dari mana pun: koneksi putus,
+    // gagal menyambung, sesi dipulihkan.
+    if ('phase' in m) {
+      const diam = ['', 'starting', 'siap login', 'menunggu scan'];
+      $('phase').textContent = diam.includes(m.phase || '') ? '' : (m.phase || '');
+    }
     if (m.filter) {
       fillForm(m.filter);
       if (m.filter.pressureWindowSec) { winSec = m.filter.pressureWindowSec; updateWinLabels(); }
