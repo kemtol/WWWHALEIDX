@@ -10,6 +10,7 @@ import { queryHistory } from './history.js';
 import { SymbolTracker } from './symbol.js';
 import { MarketBoard, buildCandidates, mergeRows } from './market.js';
 import { buildPayload, renderPrompt } from './prompt.js';
+import { askAi, aiConfigured } from './ai.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
 /**
@@ -24,6 +25,10 @@ import { BusClient, SOCKET_PATH } from './bus.js';
  */
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// Kunci API dari scanner/.env (di-gitignore). Dimuat di sini, bukan lewat systemd
+// `EnvironmentFile`, supaya `npm run app` manual dapat kunci yang sama.
+try { process.loadEnvFile(join(ROOT, '.env')); } catch { /* belum ada — fitur AI mati */ }
 
 const tls = process.env.TLS_CERT && process.env.TLS_KEY
   ? { cert: readFileSync(process.env.TLS_CERT), key: readFileSync(process.env.TLS_KEY) }
@@ -249,16 +254,35 @@ ui.onApi = async (path, q) => {
   // Prompt analisa siap tempel ke AI. Kandidatnya dari `candidatesFor` yang sama dengan
   // tabel Papan, jadi yang dianalisa model persis yang dilihat di layar — bukan hasil
   // hitungan kedua yang bisa menyimpang diam-diam.
-  if (path === '/api/prompt') {
+  if (path === '/api/prompt' || path === '/api/ai') {
     const date = q.get('date') || wibDateStr();
     const n = Math.min(Math.max(Number(q.get('n')) || BOARD_N, 1), 30);
     const c = candidatesFor(date, n);
     if (!c.rows.length) return { error: `belum ada kandidat untuk ${date}` };
+    let prompt: string;
     try {
-      const prompt = renderPrompt(buildPayload(c.rows, { date, recordedFrom: c.recordedFrom }));
-      return { date, count: c.rows.length, prompt };
+      prompt = renderPrompt(buildPayload(c.rows, { date, recordedFrom: c.recordedFrom }));
     } catch (e) {
       return { error: (e as Error).message };
+    }
+    if (path === '/api/prompt') return { date, count: c.rows.length, prompt };
+
+    // /api/ai — panggil model, hasilnya dirender jadi panel di halaman.
+    if (!aiConfigured()) return { error: 'kunci AI belum diset (lihat scanner/.env.example)' };
+    const t0 = Date.now();
+    try {
+      const { result, usage } = await askAi(prompt);
+      log(`AI: ${result.picks.length} pick · ${usage.promptTokens}+${usage.completionTokens} token`
+        + ` · ${Math.round((Date.now() - t0) / 1000)} dtk`);
+      // `prompt` ikut dikirim juga saat berhasil supaya tombol "Salin prompt" di modal
+      // tetap berguna — mis. untuk membandingkan jawaban model lain atas data yang sama.
+      return { date, count: c.rows.length, result, usage, prompt, tookMs: Date.now() - t0 };
+    } catch (e) {
+      const msg = (e as Error).message;
+      log(`AI gagal: ${msg}`);
+      // Prompt tetap dikirim: kalau panggilan gagal (saldo habis, model sibuk),
+      // halaman masih bisa menawarkan salin-manual alih-alih buntu total.
+      return { error: msg, prompt };
     }
   }
 

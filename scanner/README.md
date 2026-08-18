@@ -115,6 +115,7 @@ src/history.ts  query rentang waktu dari arsip + ringkasan per emiten
 src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
 src/market.ts   papan pasar semua emiten + kandidat (Papan & payload AI)
 src/prompt.ts   bentuk payload AI + penggabungan template (dipakai tombol AI & CLI)
+src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
 src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
 public/index.html  halaman login (QR) + dashboard 3 kolom + mode riwayat
@@ -353,23 +354,42 @@ GET /api/candidates?n=15[&date=YYYY-MM-DD]
 
 ### Tombol AI
 
-Di ujung kanan baris meta (tepat di bawah tombol 15m). Sekali klik: prompt analisa
-lengkap — template `prompts/scalp.md` + data kandidat yang **sedang tampil di tabel
-ini** — disalin ke clipboard. Tinggal tempel di chat AI mana pun; balasannya diminta
-berupa JSON (picks dengan entry/invalidasi/target, plus daftar `dihindari`).
-
-Sengaja **tidak** memanggil API AI sendiri: tidak ada kunci berbayar tersimpan di mesin
-ini, dan menempel manual membuat modelnya bebas dipilih tanpa biaya per klik. Kalau
-suatu saat mau otomatis, yang perlu ditambah hanya pemanggil API — payload dan
-template-nya sudah siap pakai.
+Di ujung kanan baris meta (tepat di bawah tombol 15m). Sekali klik: kandidat yang
+**sedang tampil di tabel ini** dikirim ke model bersama template `prompts/scalp.md`,
+dan jawabannya dirender jadi modal — ringkasan pasar, maksimal 5 pick dengan
+entry/invalidasi/target (plus selisih %-nya terhadap entry), keyakinan 1–5, alasan,
+angka bukti, dan daftar `dihindari`. Kode emiten di hasil bisa diklik langsung ke panel
+detail.
 
 Kandidatnya lewat `candidatesFor()` yang sama dengan tabel, dan jumlahnya diikat
 konstanta `BOARD_N` yang sama dengan push live — supaya prompt tidak pernah berisi
 emiten yang tidak ada di layar. Bentuk payload ada di `src/prompt.ts`, dipakai bersama
 `tools/build-payload.ts` sehingga tombol dan CLI tidak bisa menghasilkan bentuk berbeda.
 
+**Provider: DeepSeek** (`src/ai.ts`, endpoint OpenAI-compatible). Model bawaan
+`deepseek-v4-pro`; `deepseek-v4-flash` lebih murah dan cepat. Balasan diminta JSON mode,
+lalu tetap **dinormalisasi** di server: model bisa mengirim JSON sah tapi berbentuk lain,
+dan halaman tidak boleh menerima bentuk yang tidak dikenal. Field asing dibuang, yang
+hilang diberi nilai kosong.
+
+Kunci dibaca dari `scanner/.env` (mode 0600, **di-gitignore — repo ini publik**), dimuat
+`app.ts` lewat `process.loadEnvFile()` supaya `npm run app` manual juga dapat kunci yang
+sama. Contoh isian ada di `.env.example`. Tanpa kunci, endpointnya membalas error dan
+prompt tetap bisa disalin manual.
+
+Modal selalu menyediakan tombol **Salin prompt** — berguna untuk membandingkan jawaban
+model lain atas data yang sama, dan jadi jalan keluar kalau panggilan gagal (saldo habis,
+model sibuk): server tetap mengirim `prompt` di balasan error, jadi tidak pernah buntu
+total.
+
+Model reasoning bisa berpikir **puluhan detik sampai beberapa menit** untuk 20-an emiten;
+batas waktunya 180 detik. Cek sisa saldo:
+`curl -s https://api.deepseek.com/user/balance -H "Authorization: Bearer $KEY"`.
+
 ```
 GET /api/prompt[?date=YYYY-MM-DD][&n=15]  → { date, count, prompt } | { error }
+GET /api/ai    [?date=YYYY-MM-DD][&n=15]  → { date, count, result, usage, prompt, tookMs }
+                                          | { error, prompt }
 ```
 
 ## Detail per emiten (order flow)

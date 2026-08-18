@@ -1,3 +1,7 @@
 node_modules/
 logs/
 certs/
+# kunci API — repo ini publik, jangan pernah masuk git
+.env
+.env.*
+!.env.example
