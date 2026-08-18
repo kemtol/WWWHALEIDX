@@ -120,7 +120,13 @@
   .badge{display:inline-block;padding:.05rem .4rem;border-radius:0;font-size:.7rem;
          border:1px solid var(--line);color:var(--muted)}
   .badge.ng{border-color:var(--warn);color:var(--warn)}
-  .badge.burst{border-color:var(--warn);background:rgba(210,153,34,.15);color:var(--warn);font-weight:600}
+  /* Burst ikut warna sisi agresor transaksi itu (hijau HAKA, merah HAKI) — mata cuma
+     perlu baca dua warna, bukan tiga. Kuning dipakai HANYA kalau feed memang tidak
+     menyebutkan sisinya, supaya tidak menyiratkan arah yang sebenarnya tidak diketahui. */
+  .badge.burst{font-weight:600}
+  .badge.burst.up{border-color:var(--up);background:rgba(63,185,80,.15);color:var(--up)}
+  .badge.burst.down{border-color:var(--down);background:rgba(248,81,73,.15);color:var(--down)}
+  .badge.burst.warn{border-color:var(--warn);background:rgba(210,153,34,.15);color:var(--warn)}
   .flat{color:#6e7681}
   /* panel tekanan */
   .pbody{padding:.8rem}
@@ -712,7 +718,9 @@ function tradeRowHtml(t, burst, count) {
     <td class="num">${nf.format(Math.round(t.value))}</td>
     <td class="num ${cls}">${t.changePct >= 0 ? '+' : ''}${t.changePct.toFixed(2)}</td>
     <td class="num" title="${vaTitle}">${va}</td>
-    <td>${burst ? `<span class="badge burst">${count}×</span>` : ''}</td>`;
+    <td>${burst ? `<span class="badge burst ${
+      t.aggressor === 'buy' ? 'up' : t.aggressor === 'sell' ? 'down' : 'warn'
+    }">${count}×</span>` : ''}</td>`;
 }
 
 function addTrade(t, burst, count) {
