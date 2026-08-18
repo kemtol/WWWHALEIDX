@@ -158,7 +158,11 @@
   .hgrid{flex:1;min-height:0;display:grid;gap:1px;background:var(--line);
          grid-template-columns:260px minmax(0,1fr)}
   .hside{background:var(--bg);overflow:auto;padding:.4rem}
-  .hmain{background:var(--bg);overflow:auto;padding:.9rem}
+  /* min-height:0 wajib: item grid bawaannya `min-height:auto` dan menolak menyusut di
+     bawah tinggi isinya, jadi kolom ini memanjang mengikuti hasil analisa dan mendorong
+     kotak chat keluar layar. */
+  .hcol{background:var(--bg);min-width:0;min-height:0;display:flex;flex-direction:column}
+  .hmain{flex:1;min-height:0;overflow:auto;padding:.9rem}
   .hday{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
         padding:.7rem .5rem .3rem}
   .hitem{padding:.45rem .5rem;cursor:pointer;border-left:2px solid transparent;line-height:1.35}
@@ -206,6 +210,22 @@
   .avoid{margin-top:1rem;font-size:.78rem;color:var(--muted);line-height:1.7}
   .avoid b{color:#c9d1d9}
   .aerr{color:var(--down);font-size:.85rem;line-height:1.6}
+  /* Percakapan lanjutan. Giliran pengguna dibedakan lewat latar + rata kanan supaya
+     alur tanya-jawabnya terbaca sekilas, bukan sebagai satu blok teks panjang. */
+  .turns{margin-top:1rem;border-top:1px solid var(--line);padding-top:.9rem}
+  .turn{margin-bottom:.8rem;font-size:.84rem;line-height:1.6}
+  .turn.u{background:var(--panel);border-left:2px solid var(--accent);
+          padding:.5rem .7rem;white-space:pre-wrap}
+  .turn.a{padding:0 .2rem;color:#c9d1d9;white-space:pre-wrap}
+  .turn.pending{opacity:.6}
+  /* Menempel di bawah, di luar area scroll — seperti kotak kirim di aplikasi chat. */
+  .chatbar{flex:0 0 auto;display:flex;gap:.5rem;padding:.6rem .7rem;
+           border-top:1px solid var(--line);background:var(--panel)}
+  .chatbar textarea{flex:1;min-width:0;resize:none;height:2.2rem;max-height:7rem;
+    background:var(--bg);color:inherit;border:1px solid var(--line);border-radius:0;
+    font:inherit;font-size:.84rem;padding:.35rem .5rem;line-height:1.4}
+  .chatbar textarea:focus{outline:none;border-color:var(--accent)}
+  .chatbar button{flex:0 0 auto;align-self:flex-end;height:2.2rem}
   /* Menutup hampir seluruh layar: panel ini dipakai saat fokus ke satu emiten, dan
      menutupnya tidak memuat ulang apa pun — tabel live tetap mengalir di belakang. */
   #detail{position:fixed;inset:0;background:rgba(1,4,9,.88);z-index:50;
@@ -550,6 +570,10 @@
       <button id="a-close" style="margin-left:auto">Tutup</button>
     </div>
     <div class="abody" id="a-body"></div>
+    <div class="chatbar" id="a-chat" style="display:none">
+      <textarea id="a-msg" rows="1" placeholder="Tanya lanjutan soal analisa ini… (Enter kirim, Shift+Enter baris baru)"></textarea>
+      <button id="a-send">Kirim</button>
+    </div>
   </div>
 </div>
 
@@ -564,7 +588,14 @@
     </div>
     <div class="hgrid">
       <div class="hside" id="h-list"></div>
-      <div class="hmain" id="h-main"></div>
+      <!-- kolom kanan: isi yang men-scroll + kotak chat yang menempel di bawahnya -->
+      <div class="hcol">
+        <div class="hmain" id="h-main"></div>
+        <div class="chatbar" id="h-chat" style="display:none">
+          <textarea id="h-msg" rows="1" placeholder="Tanya lanjutan soal analisa ini… (Enter kirim, Shift+Enter baris baru)"></textarea>
+          <button id="h-send">Kirim</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1385,9 +1416,82 @@ async function loadCandidatesHist() {
  * gagal (saldo habis, model sibuk) masih bisa disalin dan dicoba di chat AI lain. */
 
 let aiPrompt = '';
+/** id analisa yang sedang dibuka di tiap panel — penyambung konteks percakapan. */
+let aiChatId = '';
+let histChatId = '';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/**
+ * Kirim satu pertanyaan lanjutan dan tempelkan jawabannya.
+ *
+ * Giliran pengguna langsung tampil sebelum jawaban datang — menunggu 1-2 menit tanpa
+ * melihat pertanyaan sendiri terkirim membuat orang mengetik ulang. Kedua panel (live
+ * dan riwayat) memakai fungsi ini supaya perilakunya tidak bisa berbeda.
+ */
+async function sendChat({ id, box, input, send, chat }) {
+  const text = input.value.trim();
+  if (!text || !id) return;
+  input.value = '';
+  input.style.height = '';
+
+  let turns = box.querySelector('.turns');
+  if (!turns) {
+    turns = document.createElement('div');
+    turns.className = 'turns';
+    box.appendChild(turns);
+  }
+  const mine = document.createElement('div');
+  mine.className = 'turn u';
+  mine.textContent = text;
+  turns.appendChild(mine);
+  const wait = document.createElement('div');
+  wait.className = 'turn a pending';
+  wait.textContent = 'model sedang menjawab… 0 dtk';
+  turns.appendChild(wait);
+  box.scrollTop = box.scrollHeight;
+
+  const t0 = Date.now();
+  const tick = setInterval(() => {
+    wait.textContent = `model sedang menjawab… ${Math.round((Date.now() - t0) / 1000)} dtk`;
+  }, 1000);
+  send.disabled = true;
+  input.disabled = true;
+  try {
+    const res = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, message: text }),
+    });
+    const r = await res.json();
+    if (r.error) throw new Error(r.error);
+    wait.className = 'turn a';
+    // innerHTML aman di sini: `aiText` meng-escape dulu, baru menambah tag tebal.
+    wait.innerHTML = aiText(r.reply);
+  } catch (e) {
+    wait.className = 'turn a aerr';
+    wait.textContent = 'gagal: ' + e.message;
+  } finally {
+    clearInterval(tick);
+    send.disabled = false;
+    input.disabled = false;
+    input.focus();
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
+/** Kotak teks tumbuh mengikuti isi, Enter mengirim dan Shift+Enter baris baru —
+ *  kebiasaan yang sudah terbentuk dari aplikasi chat mana pun. */
+function wireChat(input, onSend) {
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 112) + 'px';
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
+  });
+}
 
 /** Baris keterangan di kepala panel — sama untuk hasil live maupun riwayat. */
 function aiNote(r) {
@@ -1432,7 +1536,8 @@ function renderAiInto(box, r, onSym) {
     (a.dihindari.length
       ? `<div class="avoid"><b>Dihindari</b><br>${a.dihindari
           .map((d) => `${esc(d.symbol)} — ${esc(d.kenapa)}`).join('<br>')}</div>`
-      : '');
+      : '')
+    + turnsHtml(r.turns);
 
   // Kode emiten di hasil bisa diklik, sama seperti di tabel mana pun.
   box.querySelectorAll('.sym').forEach((el) => {
@@ -1440,10 +1545,36 @@ function renderAiInto(box, r, onSym) {
   });
 }
 
+/** Teks model: di-escape DULU, baru `**tebal**` diterjemahkan. Urutan itu yang membuat
+ *  aman — apa pun yang dikirim model sudah jadi teks mati sebelum tag ditambahkan.
+ *  Hanya tebal yang ditangani: model memakainya di hampir tiap jawaban dan bintangnya
+ *  mengganggu dibaca, sementara sisa markdown tidak cukup sering muncul untuk menebus
+ *  permukaan yang bisa salah. Selebihnya apa adanya lewat `white-space:pre-wrap`. */
+function aiText(s) {
+  return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+}
+
+/** Tanya-jawab lanjutan di bawah analisa. */
+function turnsHtml(turns) {
+  if (!turns || !turns.length) return '';
+  return `<div class="turns">${turns.map((t) =>
+    `<div class="turn ${t.role === 'user' ? 'u' : 'a'}">${
+      t.role === 'user' ? esc(t.text) : aiText(t.text)}</div>`).join('')}</div>`;
+}
+
 function renderAi(r) {
   $('a-note').textContent = aiNote(r);
   renderAiInto($('a-body'), r, closeAi);
+  // Chat baru mungkin setelah analisanya tersimpan (butuh id untuk menyambung konteks).
+  aiChatId = r.id || '';
+  $('a-chat').style.display = aiChatId ? '' : 'none';
 }
+
+const sendAiChat = () => sendChat({
+  id: aiChatId, box: $('a-body'), input: $('a-msg'), send: $('a-send'), chat: $('a-chat'),
+});
+$('a-send').onclick = sendAiChat;
+wireChat($('a-msg'), sendAiChat);
 
 function closeAi() { $('aibox').classList.remove('on'); }
 $('a-close').onclick = closeAi;
@@ -1492,6 +1623,9 @@ $('c-ai').onclick = async () => {
   $('a-body').innerHTML = '<p class="hint">Menunggu jawaban model — biasanya 2–3 menit, '
     + 'karena ia menalar dulu sebelum menjawab.<br>Boleh ditutup: panel ini '
     + '<b>terbuka sendiri</b> begitu jawabannya datang.</p>';
+  // Chat baru masuk akal setelah ada analisa yang bisa dibahas.
+  aiChatId = '';
+  $('a-chat').style.display = 'none';
   $('aibox').classList.add('on');
   try {
     const p = new URLSearchParams();
@@ -1547,6 +1681,8 @@ async function openAiEntry(id, el) {
   $('h-list').querySelectorAll('.hitem').forEach((x) => x.classList.remove('sel'));
   if (el) el.classList.add('sel');
   $('h-main').innerHTML = '<p class="hint">memuat…</p>';
+  $('h-chat').style.display = 'none';
+  histChatId = '';
   try {
     const r = await (await fetch('/api/ai/entry?id=' + encodeURIComponent(id))).json();
     if (r.error) throw new Error(r.error);
@@ -1555,6 +1691,10 @@ async function openAiEntry(id, el) {
     // Menutup panel riwayat dulu saat kode emiten diklik — kalau tidak, panel detail
     // muncul di belakangnya dan tidak terlihat.
     renderAiInto($('h-main'), r, closeHist);
+    // Percakapan hanya bisa dilanjutkan kalau prompt aslinya masih ada — tanpa itu
+    // model kehilangan data yang melahirkan analisanya.
+    histChatId = r.prompt ? id : '';
+    $('h-chat').style.display = histChatId ? '' : 'none';
   } catch (e) {
     $('h-main').innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
   }
@@ -1565,6 +1705,8 @@ async function openHist() {
   $('h-note').textContent = '';
   $('h-list').innerHTML = '<p class="hint" style="padding:.5rem">memuat…</p>';
   $('h-main').innerHTML = '';
+  $('h-chat').style.display = 'none';
+  histChatId = '';
   try {
     const r = await (await fetch('/api/ai/list')).json();
     const list = r.entries || [];
@@ -1594,6 +1736,12 @@ async function openHist() {
     $('h-list').innerHTML = `<p class="aerr" style="padding:.5rem">${esc(e.message)}</p>`;
   }
 }
+
+const sendHistChat = () => sendChat({
+  id: histChatId, box: $('h-main'), input: $('h-msg'), send: $('h-send'), chat: $('h-chat'),
+});
+$('h-send').onclick = sendHistChat;
+wireChat($('h-msg'), sendHistChat);
 
 function closeHist() { $('aihist').classList.remove('on'); }
 $('c-aih').onclick = openHist;

@@ -10,7 +10,7 @@ import { queryHistory } from './history.js';
 import { SymbolTracker } from './symbol.js';
 import { MarketBoard, buildCandidates, mergeRows } from './market.js';
 import { buildPayload, renderPrompt } from './prompt.js';
-import { askAi, aiConfigured } from './ai.js';
+import { askAi, chatAi, aiConfigured, type ChatMsg } from './ai.js';
 import { AiHistory, aiEntryId } from './aihist.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
@@ -220,7 +220,7 @@ function candidatesFor(date: string, n: number) {
   };
 }
 
-ui.onApi = async (path, q) => {
+ui.onApi = async (path, q, reqBody) => {
   if (path === '/api/days') {
     return archive.days().map((d) => ({ date: d, bytes: archive.sizeOf(d) }));
   }
@@ -298,6 +298,45 @@ ui.onApi = async (path, q) => {
   if (path === '/api/ai/entry') {
     const e = aiHistory.get((q.get('id') ?? '').trim());
     return e ?? { error: 'riwayat tidak ditemukan' };
+  }
+
+  // Tanya-jawab lanjutan atas satu analisa. POST karena pertanyaannya bisa panjang.
+  if (path === '/api/ai/chat') {
+    if (!aiConfigured()) return { error: 'kunci AI belum diset (lihat scanner/.env.example)' };
+    const b = (reqBody ?? {}) as { id?: unknown; message?: unknown };
+    const id = typeof b.id === 'string' ? b.id.trim() : '';
+    const message = typeof b.message === 'string' ? b.message.trim() : '';
+    if (!message) return { error: 'pesan kosong' };
+    const e = aiHistory.get(id);
+    if (!e) return { error: 'riwayat tidak ditemukan' };
+    if (!e.prompt) return { error: 'prompt asli analisa ini sudah tidak ada, tidak bisa dilanjutkan' };
+
+    // Konteks disusun ulang dari yang TERSIMPAN, bukan dari apa pun yang dikirim
+    // halaman: prompt asli + jawaban awal + seluruh tanya-jawab sesudahnya. Dengan
+    // begitu model melihat percakapan yang sama persis dengan yang dibaca di layar,
+    // dan halaman tidak bisa menyelundupkan konteks yang tidak pernah terjadi.
+    const msgs: ChatMsg[] = [
+      { role: 'user', content: e.prompt },
+      { role: 'assistant', content: JSON.stringify(e.result) },
+      ...(e.turns ?? []).map((t) => ({ role: t.role, content: t.text })),
+      { role: 'user', content: message },
+    ];
+    const t0 = Date.now();
+    try {
+      const { text, usage } = await chatAi(msgs);
+      const now = Date.now();
+      aiHistory.appendTurns(id, [
+        { role: 'user', text: message, ts: now },
+        { role: 'assistant', text, ts: now },
+      ]);
+      log(`AI chat: ${usage.promptTokens}+${usage.completionTokens} token`
+        + ` · ${Math.round((now - t0) / 1000)} dtk`);
+      return { reply: text, usage, tookMs: now - t0 };
+    } catch (err) {
+      const msg = (err as Error).message;
+      log(`AI chat gagal: ${msg}`);
+      return { error: msg };
+    }
   }
 
   if (path === '/api/history') {

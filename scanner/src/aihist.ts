@@ -16,6 +16,15 @@ import type { AiResult, AiUsage } from './ai.js';
 
 const MAX_ENTRIES = 500;
 
+/** Satu giliran percakapan lanjutan SETELAH analisa awal. Analisa awalnya sendiri tidak
+ *  disimpan di sini — ia sudah ada terstruktur di `result`, dan menyalinnya sebagai teks
+ *  berarti dua sumber kebenaran untuk isi yang sama. */
+export interface AiTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  ts: number;
+}
+
 export interface AiEntry {
   /** `YYYY-MM-DDTHH-MM-SS` waktu WIB — sekaligus urutan kronologisnya. */
   id: string;
@@ -26,6 +35,8 @@ export interface AiEntry {
   tookMs: number;
   usage: AiUsage;
   result: AiResult;
+  /** Tanya-jawab lanjutan. Entri lama tidak punya field ini — perlakukan sebagai []. */
+  turns?: AiTurn[];
 }
 
 /** Baris daftar — tanpa `result` penuh, cukup untuk kolom kiri. */
@@ -94,6 +105,30 @@ export class AiHistory {
     // kronologis, tapi bersandar pada itu berarti satu berkas yang pernah disunting
     // tangan menghasilkan daftar yang urutannya salah tanpa gejala lain.
     return out.sort((a, b) => b.ts - a.ts);
+  }
+
+  /** Tambah giliran percakapan ke entri yang sudah ada.
+   *
+   *  Barisnya ditulis ulang di tempat, bukan di-append sebagai baris baru: satu id harus
+   *  tetap satu baris, kalau tidak `get()` mengembalikan versi yang mana pun ditemukan
+   *  lebih dulu dan percakapannya terpecah. Menulis ulang seluruh berkas untuk 500 entri
+   *  (±1 MB) jauh lebih murah daripada bug seperti itu. */
+  appendTurns(id: string, turns: AiTurn[]): boolean {
+    const ls = this.lines();
+    let found = false;
+    const out = ls.map((l) => {
+      try {
+        const e = JSON.parse(l) as AiEntry;
+        if (e.id !== id) return l;
+        found = true;
+        return JSON.stringify({ ...e, turns: [...(e.turns ?? []), ...turns] });
+      } catch {
+        return l;   // baris rusak dibiarkan apa adanya, jangan sampai ikut terhapus
+      }
+    });
+    if (!found) return false;
+    try { writeFileSync(this.path, out.join('\n') + '\n'); return true; }
+    catch { return false; }
   }
 
   get(id: string): (AiEntry & { prompt: string | null }) | null {

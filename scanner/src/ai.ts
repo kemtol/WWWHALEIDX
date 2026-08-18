@@ -79,7 +79,11 @@ function normalize(raw: unknown): AiResult {
   };
 }
 
-export async function askAi(prompt: string): Promise<{ result: AiResult; usage: AiUsage }> {
+export interface ChatMsg { role: 'user' | 'assistant'; content: string; }
+
+/** Satu panggilan ke model. `json` = paksa balasan JSON (dipakai analisa awal);
+ *  tanpa itu balasannya teks bebas (dipakai tanya-jawab lanjutan). */
+async function call(messages: ChatMsg[], json: boolean): Promise<{ text: string; usage: AiUsage }> {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) throw new Error('DEEPSEEK_API_KEY belum diset (lihat scanner/.env.example)');
 
@@ -93,8 +97,8 @@ export async function askAi(prompt: string): Promise<{ result: AiResult; usage: 
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
+        messages,
+        ...(json ? { response_format: { type: 'json_object' } } : {}),
         temperature: 0.3,
       }),
     });
@@ -118,16 +122,9 @@ export async function askAi(prompt: string): Promise<{ result: AiResult; usage: 
   if (typeof text !== 'string' || !text.trim()) throw new Error('balasan model kosong');
   if (choice?.finish_reason === 'length') throw new Error('balasan model terpotong (limit token)');
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error('balasan model bukan JSON yang sah');
-  }
-
   const u = body?.usage ?? {};
   return {
-    result: normalize(parsed),
+    text,
     usage: {
       model: body?.model ?? MODEL,
       promptTokens: num(u.prompt_tokens),
@@ -135,4 +132,22 @@ export async function askAi(prompt: string): Promise<{ result: AiResult; usage: 
       cachedTokens: num(u.prompt_cache_hit_tokens),
     },
   };
+}
+
+export async function askAi(prompt: string): Promise<{ result: AiResult; usage: AiUsage }> {
+  const { text, usage } = await call([{ role: 'user', content: prompt }], true);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('balasan model bukan JSON yang sah');
+  }
+  return { result: normalize(parsed), usage };
+}
+
+/** Tanya-jawab lanjutan atas analisa yang sudah ada. Balasannya teks bebas — memaksakan
+ *  JSON di sini hanya akan membuat model menjawab pertanyaan terbuka dalam bentuk yang
+ *  canggung. */
+export async function chatAi(messages: ChatMsg[]): Promise<{ text: string; usage: AiUsage }> {
+  return call(messages, false);
 }

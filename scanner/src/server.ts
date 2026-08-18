@@ -13,6 +13,27 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
+/** Badan POST sebagai JSON. Dibatasi 256 KB — pesan chat paling panjang pun jauh di
+ *  bawah itu, dan tanpa batas satu permintaan bisa menghabiskan memori. */
+function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
+  const MAX = 256 * 1024;
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > MAX) { req.destroy(); return reject(new Error('badan permintaan terlalu besar')); }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (!chunks.length) return resolve(undefined);
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch { reject(new Error('badan permintaan bukan JSON yang sah')); }
+    });
+    req.on('error', reject);
+  });
+}
+
 export class UiServer {
   private wss: WebSocketServer;
   private server: http.Server | https.Server;
@@ -25,8 +46,10 @@ export class UiServer {
    *  tabelnya tidak mulai dari kosong sambil menunggu transaksi berikutnya. */
   getBacklog: () => unknown[] = () => [];
   /** Handler `/api/*`. Hasilnya dikirim sebagai JSON; `null` berarti 404.
-   *  Ditaruh di pemanggil supaya server tetap tidak tahu-menahu soal arsip. */
-  onApi: (path: string, q: URLSearchParams) => Promise<unknown> | unknown = () => null;
+   *  Ditaruh di pemanggil supaya server tetap tidak tahu-menahu soal arsip.
+   *  `body` hanya terisi pada POST berbadan JSON (mis. pesan chat yang terlalu
+   *  panjang untuk query string). */
+  onApi: (path: string, q: URLSearchParams, body?: unknown) => Promise<unknown> | unknown = () => null;
 
   /** Kalau `tls` diisi, server jalan HTTPS/WSS (dipakai untuk akses via domain lokal
    *  mis. whale.scanner.local). Tanpa `tls`, tetap HTTP biasa seperti sebelumnya. */
@@ -56,7 +79,8 @@ export class UiServer {
 
     if (urlPath.startsWith('/api/')) {
       try {
-        const data = await this.onApi(urlPath, new URLSearchParams(qs));
+        const body = req.method === 'POST' ? await readJsonBody(req) : undefined;
+        const data = await this.onApi(urlPath, new URLSearchParams(qs), body);
         if (data === null || data === undefined) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           return res.end('{"error":"tidak dikenal"}');

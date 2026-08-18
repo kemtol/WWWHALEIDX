@@ -441,8 +441,37 @@ panel riwayat menutup, panel detail order flow terbuka.
 
 ```
 GET /api/ai/list           → { entries: [{ id, ts, date, picks, symbols[], model }] }
-GET /api/ai/entry?id=<id>  → { id, ts, date, count, tookMs, usage, result, prompt }
+GET /api/ai/entry?id=<id>  → { id, ts, date, count, tookMs, usage, result, prompt, turns }
                            | { error }
+```
+
+### Tanya-jawab lanjutan
+
+Analisa awal bukan hasil sekali jadi — ia **pesan pertama sebuah percakapan**. Di bawah
+hasilnya ada kotak chat (Enter kirim, Shift+Enter baris baru), tersedia di panel live
+maupun panel riwayat. Pertanyaan lanjutan dijawab dengan membawa konteks penuh, jadi
+"kenapa DSSA cuma 3 bintang?" atau "bandingkan BREN vs ISAT" bisa dijawab tanpa
+mengulang datanya.
+
+Konteks disusun ulang **di server dari yang tersimpan**, bukan dari apa pun yang dikirim
+halaman: prompt asli → jawaban awal (JSON) → seluruh tanya-jawab sesudahnya → pertanyaan
+baru. Dua akibatnya penting: model melihat percakapan yang sama persis dengan yang
+terbaca di layar, dan halaman tidak bisa menyelundupkan konteks yang tidak pernah terjadi.
+
+Balasan lanjutan **tidak** dipaksa JSON — memaksakannya hanya membuat model menjawab
+pertanyaan terbuka dalam bentuk yang canggung. Teksnya ditampilkan apa adanya
+(`white-space:pre-wrap`); tidak ada penerjemah markdown, karena itu permukaan tambahan
+yang bisa salah tanpa memberi banyak.
+
+Giliran disimpan ke `turns[]` di entri riwayat yang sama. Barisnya **ditulis ulang di
+tempat**, bukan di-append sebagai baris baru: satu id harus tetap satu baris, kalau tidak
+`get()` mengembalikan versi mana pun yang ketemu duluan dan percakapannya terpecah.
+
+Percakapan hanya bisa dilanjutkan kalau prompt aslinya masih ada — tanpa itu model
+kehilangan data yang melahirkan analisanya, jadi kotak chatnya disembunyikan.
+
+```
+POST /api/ai/chat  { id, message }  → { reply, usage, tookMs } | { error }
 ```
 
 ## Detail per emiten (order flow)
