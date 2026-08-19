@@ -82,12 +82,24 @@ bisa diturunkan dari feed LT sama sekali.
 
 ---
 
-## 3b. OB2 DICOBA DAN DITOLAK (19 Agu 2026)
+## 3b. OB2 BELUM PERNAH BENAR-BENAR DIUJI (19 Agu 2026)
 
-Diuji dari koneksi collector sendiri, sesi baru (login 11:01:41), transaksi mengalir
-normal (+95 dalam 6 detik). Lima langganan OB2 dikirim — **kelimanya dibalas
-`{"status":"ERROR","errmsg":"NOSERVICE"}`**, dan tiap penolakan cocok satu-satu dengan
-permintaannya lewat pasangan `rid`↔`cid`. Jadi bukan salah sasaran.
+> **Koreksi.** Dokumen ini sempat menyatakan OB2 "dicoba dan ditolak". Itu **keliru**.
+> Kedua percobaan menabrak koneksi yang sudah tidak terautentikasi, dan koneksi anonim
+> memang selalu dibalas `NOSERVICE` — hal yang sudah lama kita buktikan untuk LT.
+>
+> | Percobaan | Keadaan sebenarnya |
+> |---|---|
+> | 10:59:07 | stream sudah mati sejak 10:51:56 |
+> | 11:02:38 | token dicabut 11:02:21, koneksi sudah anonim lagi (arsip jam 11:03 = 0 transaksi) |
+>
+> Yang mematikan sesi itu adalah bug koneksi ganda di `collector.ts`/`ipot.ts`, baru
+> ditemukan setelahnya. Sampai OB2 diuji di atas sesi yang benar-benar hidup,
+> **statusnya tidak diketahui — bukan ditolak.**
+
+Yang tetap sahih dari percobaan itu: bentuk permintaan kita identik dengan klien resmi,
+dan tiap `NOSERVICE` memang cocok satu-satu dengan permintaannya lewat `rid`↔`cid`
+(jadi mekanisme kirim-terimanya benar, hanya sesinya yang mati).
 
 Frame yang kita kirim identik dengan milik klien resmi — field, nilai, `level:10`,
 semuanya sama; hanya urutan kunci dan pola `subsid` yang berbeda, dan keduanya tidak
@@ -98,7 +110,8 @@ kita  {"event":"cmd","data":{"cmdid":10,"param":{"cmd":"subscribe","service":"mi
 resmi {"event":"cmd","data":{"cmdid":30,"param":{"cmd":"subscribe","service":"mi","code":"TLKM","level":10,"subsid":"7831435b75","rtype":"OB2"}},"cid":32}
 ```
 
-Dua kemungkinan tersisa, belum dipisahkan:
+Kalau nanti diuji di atas sesi hidup dan TETAP ditolak, dua kemungkinan ini yang perlu
+dipisahkan:
 
 1. **Entitlement.** Orderbook 10 tingkat lazim dijual terpisah; akun ini mungkin tidak
    berhak, sementara running trade termasuk. Kalau ini penyebabnya, tidak ada perubahan
@@ -109,7 +122,7 @@ Dua kemungkinan tersisa, belum dipisahkan:
    langganan sekaligus. Mungkin OB2 hanya sah untuk simbol yang sedang "dibuka".
    Menguji ini menuntut dukungan SS2, jadi menuntut restart collector.
 
-Sampai salah satunya terbukti, **jangan bangun fitur apa pun di atas OB2.**
+Sampai OB2 terbukti jalan di atas sesi hidup, **jangan bangun fitur apa pun di atasnya.**
 
 ## 4. Yang SALAH di dokumen dan kode SSSAHAM
 
