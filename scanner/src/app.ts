@@ -279,13 +279,70 @@ ui.onApi = async (path, q, reqBody) => {
     };
   }
 
-  // Orderbook satu emiten. `null` kalau belum dilanggan atau bukunya belum terbentuk —
-  // halaman membedakan "belum ada" dari "kosong", karena artinya berbeda.
+  /**
+   * Tangga terpadu: orderbook, footprint, dan profil volume pada SATU sumbu harga.
+   *
+   * Ini yang tidak ada di aplikasi sekuritas. Mereka menampilkan orderbook (niat yang
+   * tergeletak) atau time & sales (yang sudah terjadi), tidak pernah dipertemukan per
+   * harga — dan tidak pernah menyimpan riwayat tingkat, sehingga tidak bisa memberi
+   * tahu tembok mana yang sudah dimakan lalu diisi ulang.
+   */
   if (path === '/api/orderbook') {
     const code = (q.get('code') ?? '').trim().toUpperCase();
     if (!/^[A-Z0-9]{2,6}$/.test(code)) return { error: 'kode emiten tidak sah' };
-    const depth = Math.min(Math.max(Number(q.get('depth')) || 10, 1), 20);
-    return { code, book: books.get(code, depth), dilanggan: ob2.live.has(code) };
+    const depth = Math.min(Math.max(Number(q.get('depth')) || 12, 1), 25);
+    const book = books.get(code, depth);
+    if (!book) return { code, book: null, dilanggan: ob2.live.has(code) };
+
+    const today = wibDateStr();
+    const d = tracker.detail(code, { recordedFrom: archive.startTime(today), now: Date.now() });
+    const fp = new Map((d?.footprint ?? []).map((f) => [f.price, f]));
+    const prof = d?.profile ?? null;
+
+    // Sumbu harga = gabungan tingkat buku dan tingkat yang pernah bertransaksi, supaya
+    // harga yang ramai tapi sudah kosong di buku (atau sebaliknya) tetap terlihat.
+    const harga = [...new Set([
+      ...book.bid.map((x) => x.price), ...book.ask.map((x) => x.price),
+      ...[...fp.keys()].filter((p) => {
+        const lo = book.bid.at(-1)?.price ?? -Infinity;
+        const hi = book.ask.at(-1)?.price ?? Infinity;
+        return p >= lo && p <= hi;
+      }),
+    ])].sort((a, b) => b - a);
+
+    const bid = new Map(book.bid.map((x) => [x.price, x.lot]));
+    const ask = new Map(book.ask.map((x) => [x.price, x.lot]));
+
+    const rows = harga.map((price) => {
+      const f = fp.get(price);
+      const st = books.statAt(code, price);
+      const sisaJual = ask.get(price) ?? 0;
+      const sisaBeli = bid.get(price) ?? 0;
+      const beliAgr = f?.buyLot ?? 0;
+      const jualAgr = f?.sellLot ?? 0;
+
+      // ABSORPSI. Buktinya dari riwayat buku, BUKAN dari perbandingan footprint vs sisa:
+      // footprint dihitung sejak pembukaan sementara buku baru diamati sejak dilanggan,
+      // jadi membandingkan keduanya langsung akan melebih-lebihkan. Yang dipakai:
+      // temboknya sudah dimakan banyak, diisi ulang berkali-kali, dan MASIH berdiri.
+      let absorpsi: { sisi: 'bid' | 'ask'; dimakan: number; isiUlang: number } | null = null;
+      if (st && st.isiUlang >= 3 && st.dimakan >= st.puncak && (sisaJual > 0 || sisaBeli > 0)) {
+        absorpsi = { sisi: sisaJual > 0 ? 'ask' : 'bid', dimakan: st.dimakan, isiUlang: st.isiUlang };
+      }
+      return {
+        price, sisaBeli, sisaJual, beliAgr, jualAgr,
+        trades: f?.trades ?? 0,
+        poc: prof?.poc === price, vah: prof?.vah === price, val: prof?.val === price,
+        absorpsi,
+      };
+    });
+
+    return {
+      code, dilanggan: true,
+      spread: book.spread, spreadPct: book.spreadPct, updates: book.updates,
+      sejak: books.sejak(code), last: d?.last ?? null, vwap: d?.avg ?? null,
+      rows,
+    };
   }
 
   if (path === '/api/unwatch') {

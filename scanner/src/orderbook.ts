@@ -19,6 +19,26 @@
 
 export interface BookLevel { price: number; lot: number }
 
+/**
+ * Riwayat satu tingkat harga sejak kita mulai melanggan. Inilah yang tidak dimiliki
+ * aplikasi sekuritas: mereka menampilkan ukuran tembok SEKARANG, bukan berapa kali ia
+ * sudah dimakan dan diisi ulang.
+ *
+ * `dimakan` menjumlahkan setiap penyusutan, `isiUlang` menghitung setiap penambahan
+ * pada tingkat yang sudah ada. Tembok yang dimakan 96 ribu lot lalu diisi ulang 12 kali
+ * dan masih berdiri bukan resistance biasa — ada yang sengaja menahan di situ.
+ */
+export interface LevelStat {
+  /** Total lot yang menyusut dari tingkat ini (dimakan atau ditarik). */
+  dimakan: number;
+  /** Berapa kali tingkat ini bertambah setelah sebelumnya ada. */
+  isiUlang: number;
+  /** Ukuran terbesar yang pernah terlihat. */
+  puncak: number;
+  /** Sisi tempat riwayat ini terjadi saat terakhir diperbarui. */
+  sisi: 'bid' | 'ask';
+}
+
 export interface BookView {
   code: string;
   /** Bid tertinggi lebih dulu. */
@@ -41,19 +61,45 @@ class Book {
   updatedAt = 0;
   updates = 0;
   ready = false;
+  /** Kapan buku ini pertama terbentuk — batas cakupan riwayat tingkatnya. */
+  sejak = 0;
 
   init(buy: [number, number][], sell: [number, number][], ts: number) {
     this.bid.clear(); this.ask.clear();
     for (const [p, l] of buy) if (l > 0) this.bid.set(p, l);
     for (const [p, l] of sell) if (l > 0) this.ask.set(p, l);
-    this.updatedAt = ts; this.updates = 0; this.ready = true;
+    this.updatedAt = ts; this.updates = 0;
+    if (!this.ready) this.sejak = ts;   // langganan ulang tidak mereset cakupan riwayat
+    this.ready = true;
+  }
+
+  stat = new Map<number, LevelStat>();
+
+  /** Catat perubahan ukuran satu tingkat. Menyusut = dimakan atau ditarik; bertambah
+   *  pada tingkat yang sudah ada = diisi ulang. Keduanya tidak terlihat di aplikasi
+   *  sekuritas, dan justru itu yang membedakan tembok sungguhan dari tembok pajangan. */
+  private catat(price: number, lama: number, baru: number, sisi: 'bid' | 'ask') {
+    let s = this.stat.get(price);
+    if (!s) { s = { dimakan: 0, isiUlang: 0, puncak: 0, sisi }; this.stat.set(price, s); }
+    s.sisi = sisi;
+    if (baru > s.puncak) s.puncak = baru;
+    if (lama > 0 && baru < lama) s.dimakan += lama - baru;
+    else if (lama > 0 && baru > lama) s.isiUlang++;
   }
 
   /** Terapkan satu tingkat yang berubah. Lot 0 di kedua sisi = tingkat dihapus. */
   private set(price: number, lotBeli: number, lotJual: number) {
-    if (lotBeli > 0) { this.bid.set(price, lotBeli); this.ask.delete(price); }
-    else if (lotJual > 0) { this.ask.set(price, lotJual); this.bid.delete(price); }
-    else { this.bid.delete(price); this.ask.delete(price); }
+    if (lotBeli > 0) {
+      this.catat(price, this.bid.get(price) ?? 0, lotBeli, 'bid');
+      this.bid.set(price, lotBeli); this.ask.delete(price);
+    } else if (lotJual > 0) {
+      this.catat(price, this.ask.get(price) ?? 0, lotJual, 'ask');
+      this.ask.set(price, lotJual); this.bid.delete(price);
+    } else {
+      const lama = this.bid.get(price) ?? this.ask.get(price) ?? 0;
+      if (lama > 0) this.catat(price, lama, 0, this.bid.has(price) ? 'bid' : 'ask');
+      this.bid.delete(price); this.ask.delete(price);
+    }
   }
 
   update(recinfo: string, ts: number) {
@@ -110,6 +156,29 @@ export class OrderBooks {
   get(code: string, depth = 10): BookView | null {
     const b = this.books.get(code);
     return b?.ready ? b.view(code, depth) : null;
+  }
+
+  /** Ukuran tergeletak sekarang di satu harga, apa pun sisinya. */
+  sizeAt(code: string, price: number): { lot: number; sisi: 'bid' | 'ask' } | null {
+    const b = this.books.get(code);
+    if (!b?.ready) return null;
+    const d = b.bid.get(price);
+    if (d !== undefined) return { lot: d, sisi: 'bid' };
+    const s = b.ask.get(price);
+    if (s !== undefined) return { lot: s, sisi: 'ask' };
+    return null;
+  }
+
+  statAt(code: string, price: number): LevelStat | null {
+    return this.books.get(code)?.stat.get(price) ?? null;
+  }
+
+  /** Sejak kapan buku emiten ini diamati — penting karena `dimakan`/`isiUlang` hanya
+   *  mencakup sejak langganan dimulai, sementara footprint mencakup sejak pembukaan.
+   *  Membandingkan keduanya tanpa menyebut beda cakupan ini akan menyesatkan. */
+  sejak(code: string): number | null {
+    const b = this.books.get(code);
+    return b?.ready ? b.sejak : null;
   }
 
   get size() { return this.books.size; }

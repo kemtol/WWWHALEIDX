@@ -378,16 +378,31 @@
          font-size:.62rem;letter-spacing:.04em}
   .fp .fprice{text-align:right;width:62px;font-weight:600}
   .fp .fsell,.fp .fbuy{width:44%}
-  /* Orderbook: bid dan ask berbagi satu skala lebar, jadi tebal-tipisnya bisa
-     dibandingkan langsung antar-sisi — itu inti bacanya (tembok di mana). */
-  .ob{width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums}
-  .ob td{padding:1px 4px;white-space:nowrap}
-  .ob .obq{width:38%}
-  .ob .obp{width:12%;text-align:center;color:var(--muted)}
-  .ob i{display:block;height:10px}
-  .ob .qb i{background:rgba(63,185,80,.55);margin-left:auto}
-  .ob .qs i{background:rgba(248,81,73,.55)}
-  .ob .pb{color:var(--up)} .ob .ps{color:var(--down)}
+  /* Tangga terpadu: SATU sumbu harga untuk niat (orderbook) dan kenyataan (footprint).
+     Aplikasi sekuritas memisahkan keduanya, jadi "di harga mana beli agresif menghantam
+     tembok yang bertahan" tidak pernah terlihat. Di sini keduanya sebaris. */
+  .ob{width:100%;border-collapse:collapse;font-size:.7rem;font-variant-numeric:tabular-nums}
+  .ob th{font-size:.6rem;color:var(--muted);font-weight:400;text-transform:uppercase;
+         letter-spacing:.04em;padding:0 3px 3px;white-space:nowrap}
+  .ob td{padding:1px 3px;white-space:nowrap;border-top:1px solid rgba(48,54,61,.4)}
+  .ob .n{text-align:right}
+  /* Sisa (niat) diredupkan; agresif (kenyataan) penuh. Yang sudah terjadi lebih
+     dipercaya daripada yang baru dijanjikan. */
+  .ob .sisa{opacity:.5}
+  .ob i{display:block;height:9px}
+  .ob .bar-b i{background:var(--up);margin-left:auto}
+  .ob .bar-s i{background:var(--down)}
+  .ob .bar-sb i{background:rgba(63,185,80,.4);margin-left:auto}
+  .ob .bar-ss i{background:rgba(248,81,73,.4)}
+  .ob .hrg{text-align:center;font-weight:600;width:52px}
+  .ob tr.poc .hrg{color:var(--warn)}
+  .ob tr.last .hrg{background:var(--panel);outline:1px solid var(--accent)}
+  .ob .tag{font-size:.55rem;letter-spacing:.04em;color:var(--muted);padding-left:4px}
+  /* Baris absorpsi: satu-satunya hal di tangga ini yang tidak bisa dilihat di aplikasi
+     sekuritas mana pun, jadi ia yang paling menonjol. */
+  .ob tr.abs{background:rgba(210,153,34,.13)}
+  .ob tr.abs .hrg{color:var(--warn)}
+  .obabs{font-size:.62rem;color:var(--warn);padding:2px 3px 4px;line-height:1.4}
   .obspread{display:flex;gap:1rem;font-size:.74rem;margin:.35rem 0 .5rem;color:var(--muted)}
   .obspread b{color:var(--text);font-variant-numeric:tabular-nums}
   .fp .fsell div{background:var(--down);height:11px;margin-left:auto}
@@ -718,14 +733,10 @@
         <h4>Orderbook <span class="hint" id="d-ob-note" style="font-weight:400"></span></h4>
         <div id="d-ob" style="margin-bottom:.9rem"></div>
 
-        <h4>Footprint — beli vs jual agresif per harga</h4>
-        <table class="fp">
-          <thead><tr>
-            <th class="fnum" style="text-align:right">jual</th><th></th>
-            <th class="fprice">harga</th><th></th><th class="fnum">beli</th>
-          </tr></thead>
-          <tbody id="d-fp"></tbody>
-        </table>
+        <!-- Panel Footprint terpisah DIHAPUS: isinya (beli/jual agresif per harga)
+             kini menyatu di tangga terpadu di atas. Menampilkannya dua kali memaksa mata
+             bolak-balik antara dua tabel berkunci harga yang sama — persis kelemahan
+             yang membuat tampilan ini tidak lebih baik dari aplikasi sekuritas. -->
         <p class="hint" id="d-fp-note" style="margin:.5rem 0 0"></p>
       </div>
     </div>
@@ -1165,44 +1176,17 @@ function renderDelta(minutes, bands) {
     `delta kumulatif ${fmtRp(last)} · ${pts.length} menit · 3 menit terakhir ${trend}`;
 }
 
+/** Panel footprint terpisah sudah dihapus — isinya menyatu di tangga terpadu. Yang
+ *  tersisa hanya keterangan lelang penutupan, karena level yang isinya cuma lelang
+ *  tidak punya sisi agresor dan tidak muncul sebagai beli/jual agresif di tangga;
+ *  tanpa catatan ini, justru harga penutupan yang tidak terjelaskan. */
 function renderFootprint(fp, last, profile) {
-  if (!fp.length) { $('d-fp').innerHTML = ''; $('d-fp-note').textContent = 'Belum ada transaksi RG.'; return; }
-  // Hanya level teratas menurut aktivitas, tapi ditampilkan urut harga — kalau
-  // semua level ikut, emiten aktif bisa punya ratusan baris dan tidak terbaca.
-  const top = [...fp].sort((a, b) => (b.buyLot + b.sellLot + b.unknownLot) - (a.buyLot + a.sellLot + a.unknownLot))
-                     .slice(0, 24)
-                     .sort((a, b) => b.price - a.price);
-  const max = Math.max(...top.map((f) => Math.max(f.buyLot, f.sellLot))) || 1;
-  $('d-fp').innerHTML = top.map((f) => {
-    const bw = Math.round((f.buyLot / max) * 100);
-    const sw = Math.round((f.sellLot / max) * 100);
-    // Level yang isinya hanya lelang penutupan tidak punya sisi agresor, jadi tidak
-    // ada batang yang bisa digambar. Tanpa keterangan barisnya terlihat kosong —
-    // padahal justru di situ harga penutupan terbentuk.
-    const onlyAuction = !f.buyLot && !f.sellLot && f.unknownLot > 0;
-    const cls = [
-      f.price === last ? 'at' : '',
-      profile && f.price === profile.poc ? 'poc' : '',
-      profile && f.price >= profile.val && f.price <= profile.vah ? 'inva' : '',
-    ].filter(Boolean).join(' ');
-    return `<tr class="${cls}" title="harga ${nf.format(f.price)} · beli ${nf.format(f.buyLot)} lot · jual ${nf.format(f.sellLot)} lot${f.unknownLot ? ' · lelang (tanpa sisi agresor) ' + nf.format(f.unknownLot) + ' lot' : ''} · ${f.trades} transaksi">
-      <td class="fnum" style="text-align:right">${f.sellLot ? nf.format(f.sellLot) : ''}</td>
-      <td class="fsell"><div style="width:${sw}%"></div></td>
-      <td class="fprice">${nf.format(f.price)}</td>
-      <td class="fbuy">${onlyAuction
-        ? `<span class="flat" style="font-size:.7rem">lelang</span>`
-        : `<div style="width:${bw}%"></div>`}</td>
-      <td class="fnum">${onlyAuction ? nf.format(f.unknownLot)
-                       : f.buyLot ? nf.format(f.buyLot) : ''}</td>
-    </tr>`;
-  }).join('');
-  const auction = fp.reduce((n, f) => n + f.unknownLot, 0);
-  $('d-fp-note').textContent =
-    `${top.length} dari ${fp.length} level harga teraktif · kiri jual agresif, kanan beli agresif · biru = harga terakhir` +
-    (auction ? ` · ${nf.format(auction)} lot dari lelang, tanpa sisi agresor` : '');
+  const lelang = fp.reduce((n, f) => n + (!f.buyLot && !f.sellLot ? f.unknownLot : 0), 0);
+  $('d-fp-note').textContent = !fp.length
+    ? 'Belum ada transaksi RG.'
+    : lelang ? `${nf.format(lelang)} lot di lelang penutupan — tanpa sisi agresor, tidak masuk tangga.` : '';
 }
 
-/** Satu baris label + nilai di kolom kiri/kanan. */
 function kv(label, value, opts) {
   const o = opts || {};
   const t = o.title ? ` title="${String(o.title).replace(/"/g, '&quot;')}"` : '';
@@ -1335,33 +1319,63 @@ async function loadBook(sym) {
   try {
     const r = await (await fetch('/api/orderbook?code=' + encodeURIComponent(sym))).json();
     if (r.error) throw new Error(r.error);
-    if (!r.book) {
+    if (!r.rows || !r.rows.length) {
       box.innerHTML = '';
       note.textContent = r.dilanggan
         ? '— menunggu buku pertama dari server'
         : '— emiten ini belum masuk Kandidat hari ini, jadi belum dilanggan';
       return;
     }
-    const b = r.book;
-    note.textContent = `· ${b.updates} pembaruan`;
-    const maks = Math.max(1, ...b.bid.map((x) => x.lot), ...b.ask.map((x) => x.lot));
-    const baris = [];
-    for (let i = 0; i < Math.max(b.bid.length, b.ask.length); i++) {
-      const d = b.bid[i], s = b.ask[i];
-      baris.push(`<tr>
-        <td class="obq qb">${d ? `<i style="width:${(d.lot / maks * 100).toFixed(1)}%"></i>` : ''}</td>
-        <td class="obq" style="width:10%;text-align:right">${d ? nf.format(d.lot) : ''}</td>
-        <td class="obp pb">${d ? nf.format(d.price) : ''}</td>
-        <td class="obp ps">${s ? nf.format(s.price) : ''}</td>
-        <td class="obq" style="width:10%">${s ? nf.format(s.lot) : ''}</td>
-        <td class="obq qs">${s ? `<i style="width:${(s.lot / maks * 100).toFixed(1)}%"></i>` : ''}</td>
-      </tr>`);
-    }
+    const rows = r.rows || [];
+    note.textContent = `· ${r.updates} pembaruan buku`;
+    // Dua skala terpisah: niat dibandingkan dengan niat, kenyataan dengan kenyataan.
+    // Menyatukannya membuat footprint sehari penuh menenggelamkan orderbook sesaat.
+    const maksSisa = Math.max(1, ...rows.map((x) => Math.max(x.sisaBeli, x.sisaJual)));
+    const maksAgr = Math.max(1, ...rows.map((x) => Math.max(x.beliAgr, x.jualAgr)));
+    // Angka dipadatkan: kolom ini cuma 420px dan angka penuh membuat semuanya terpotong,
+    // yang lebih buruk daripada kehilangan satu digit ketelitian.
+    const lot = (v) => !v ? ''
+      : v >= 1e6 ? (v / 1e6).toFixed(1).replace('.', ',') + 'jt'
+      : v >= 1e4 ? Math.round(v / 1e3) + 'rb'
+      : v >= 1e3 ? (v / 1e3).toFixed(1).replace('.', ',') + 'rb'
+      : String(v);
+    const bar = (v, maks, cls) => (v ? `<td class="${cls}"><i style="width:${(v / maks * 100).toFixed(1)}%"></i></td>` : '<td></td>');
+
+    const baris = rows.map((x) => {
+      const kelas = [x.absorpsi ? 'abs' : '', x.poc ? 'poc' : '', x.price === r.last ? 'last' : ''].filter(Boolean).join(' ');
+      const tanda = [x.poc ? 'POC' : '', x.vah ? 'VAH' : '', x.val ? 'VAL' : ''].filter(Boolean).join('');
+      const utama = `<tr class="${kelas}" title="${nf.format(x.price)} — sisa jual ${nf.format(x.sisaJual)} · jual agresif ${nf.format(x.jualAgr)} · beli agresif ${nf.format(x.beliAgr)} · sisa beli ${nf.format(x.sisaBeli)} · ${nf.format(x.trades)} transaksi">
+        <td class="n sisa">${lot(x.sisaJual)}</td>
+        <td class="n">${lot(x.jualAgr)}</td>
+        ${bar(x.jualAgr, maksAgr, 'bar-s')}
+        <td class="hrg">${nf.format(x.price)}${tanda ? `<span class="tag">${tanda}</span>` : ''}</td>
+        ${bar(x.beliAgr, maksAgr, 'bar-b')}
+        <td class="n">${lot(x.beliAgr)}</td>
+        <td class="n sisa">${lot(x.sisaBeli)}</td>
+      </tr>`;
+      if (!x.absorpsi) return utama;
+      const a = x.absorpsi;
+      return utama + `<tr class="abs"><td colspan="7" class="obabs">⚠ ABSORPSI di ${nf.format(x.price)} —
+        tembok ${a.sisi === 'ask' ? 'jual' : 'beli'} dimakan ${nf.format(a.dimakan)} lot, diisi ulang
+        ${a.isiUlang}× sejak dipantau, dan masih berdiri</td></tr>`;
+    }).join('');
+
     box.innerHTML =
       `<div class="obspread">
-         <span>spread <b>${b.spread ?? '—'}</b></span>
-         <span>${b.spreadPct !== null ? `<b>${b.spreadPct.toFixed(2)}%</b> dari bid` : ''}</span>
-       </div><table class="ob">${baris.join('')}</table>`;
+         <span>spread <b>${r.spread ?? '—'}</b></span>
+         <span>${r.spreadPct !== null ? `<b>${r.spreadPct.toFixed(2)}%</b> dari bid` : ''}</span>
+         <span class="hint">buku dipantau sejak ${r.sejak ? new Date(r.sejak).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) : '—'}</span>
+       </div>
+       <table class="ob">
+         <thead><tr>
+           <th style="text-align:right">sisa jual</th>
+           <th colspan="2" style="text-align:right">jual agresif</th>
+           <th>harga</th>
+           <th colspan="2">beli agresif</th>
+           <th>sisa beli</th>
+         </tr></thead>
+         <tbody>${baris}</tbody>
+       </table>`;
   } catch (e) {
     box.innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
   }
