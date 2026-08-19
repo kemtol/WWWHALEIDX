@@ -142,6 +142,8 @@ src/filters.ts  filter transaksi, deteksi burst, tekanan HAKA/HAKI
 src/archive.ts  arsip transaksi harian (logs/lt/), rotasi + retensi
 src/history.ts  query rentang waktu dari arsip + ringkasan per emiten
 src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
+src/orderbook.ts buku order per emiten dari OB2 + riwayat tiap tingkat harga
+src/events.ts   narasi kejadian: tembok ditarik vs jebol vs diserap (OB2 x LT)
 src/market.ts   papan pasar semua emiten + kandidat (kolom Kandidat & payload AI)
 src/prompt.ts   bentuk payload AI + penggabungan template (dipakai tombol AI & CLI)
 src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
@@ -285,8 +287,9 @@ beberapa order lawan. Jalankan `npx tsx tools/analyze-lt.ts <tanggal>` atas arsi
 penuh untuk melanjutkan.
 
 Ini mengoreksi catatan lama di repo ini yang menyatakan feed LT tidak memuat sisi
-agresor dan bahwa HAKA/HAKI hanya mungkin lewat orderbook (`OB2`). Untuk **spread** dan
-**offer wall**, `OB2` tetap dibutuhkan.
+agresor dan bahwa HAKA/HAKI hanya mungkin lewat orderbook (`OB2`). `OB2` sendiri kini
+sudah terpasang — bukan untuk sisi agresor, melainkan untuk spread, tembok, dan narasi
+kejadian (lihat [Orderbook & narasi kejadian](#orderbook--narasi-kejadian)).
 
 ### `[17]` — VWAP (terverifikasi 13 Agu 2026)
 
@@ -660,6 +663,101 @@ GET /api/symbol?code=BBCA[&date=YYYY-MM-DD][&reload=1]
 GET /api/unwatch?code=BBCA        (dipanggil halaman saat panel ditutup)
 ```
 
+## Orderbook & narasi kejadian
+
+Bagian ini menjawab satu keberatan yang sah: **kenapa membangun ulang sesuatu yang sudah
+ada di aplikasi sekuritas?** Jawabannya, yang dibangun bukan tampilan bukunya. Aplikasi
+sekuritas menampilkan tembok yang ada **sekarang**. Ia tidak menyimpan riwayat tingkat,
+dan tidak pernah mencocokkan perubahan buku dengan transaksi yang benar-benar terjadi di
+harga itu. Justru dua hal itu yang membedakan niat sungguhan dari pajangan.
+
+Ambil satu tembok beli 40.000 lot yang lenyap. Di aplikasi sekuritas, kejadiannya cuma
+"angka itu tadi ada, sekarang tidak". Padahal ada dua kemungkinan yang artinya
+berlawanan:
+
+```
+tembok hilang + ada transaksi sebesar itu   → JEBOL, level benar-benar patah
+tembok hilang + nyaris tanpa transaksi      → DITARIK, temboknya cuma pajangan
+```
+
+Membedakannya menuntut OB2 dan LT dibaca berbarengan. Itu isi `src/events.ts`.
+
+### Emiten mana yang dilanggan
+
+Bukan semua ~686 emiten — langganan OB2 per simbol dan ongkosnya 14–22 KB/menit masing-
+masing. Bukan pula yang sedang diklik: kejadian tidak menunggu kita melihat. Yang
+dilanggan adalah **roster kandidat hari itu** — tiap emiten yang pernah masuk tabel
+Kandidat, ditahan sampai `OB2_MAX = 120` dan disimpan ke `logs/ob2-roster.json` supaya
+restart `whale-app` tidak kehilangan daftarnya.
+
+OB2 mentah **tidak diarsipkan** (555 MB/hari untuk 120 emiten, dibanding 77 MB/hari
+milik LT) dan dikecualikan dari `logs/frames.jsonl`. Yang disimpan cuma turunannya.
+
+### Empat jenis kejadian
+
+| Label | Kriteria | Artinya |
+|---|---|---|
+| `DITARIK` | tembok susut ≥60%, transaksi <25% dari yang susut | niat palsu — ditarik pemasangnya |
+| `JEBOL` | tembok susut ≥60%, transaksi ≥60% dari yang susut | level benar-benar dihajar |
+| `ABSORPSI` | dimakan melebihi ukuran terbesarnya sendiri, diisi ulang ≥3×, masih berdiri | ada yang sengaja menahan di situ |
+| `tembok baru` | tingkat baru ≥6× median buku | niat yang baru dipasang, belum teruji |
+
+Ambangnya **relatif terhadap buku emiten itu sendiri** (kelipatan median tingkat), bukan
+angka mutlak: 5.000 lot itu tembok raksasa di emiten sepi dan debu di BBCA. Ada juga
+lantai `LOT_MINIMUM = 500` supaya tingkat receh tidak ikut diberitakan.
+
+Contoh nyata dari sesi 19 Agu 2026, dua-duanya "tembok hilang" di aplikasi sekuritas:
+
+```
+PIPA  tembok beli 77.938 lot di 167 JEBOL   — dihajar 113.077 lot
+MEDC  tembok beli 14.557 lot di 1.370 DITARIK — 0 lot bertransaksi
+```
+
+PIPA hari itu bercerita utuh: tembok belinya jebol di 167, lalu di sisi jual harga 166
+muncul absorpsi 24.340 lot yang **diisi ulang 26 kali dan masih berdiri**, sementara
+tembok beli di 164 dan 165 ditarik. Ada yang menahan harga dari atas sambil menarik
+permintaan palsu dari bawah — pembacaan yang tidak tersedia dari tampilan buku biasa.
+
+### Tiga jebakan yang sudah menelan korban
+
+Ketiganya menghasilkan keluaran yang **terlihat masuk akal**, jadi layak diingat sebelum
+mengubah ambang apa pun:
+
+1. **Jendela pindai terlalu rapat.** Memindai tiap 2 detik sambil menuntut susut 60%
+   dalam satu tik menghasilkan **nol** kejadian — nyaris tidak ada tembok yang lenyap
+   secepat itu. Pindai punya interval sendiri `JEDA_PINDAI_MS = 10_000`, dengan jeda
+   dingin 90 detik per tingkat supaya tembok berkedip tidak membanjiri narasi.
+
+2. **Kedalaman buku yang terbatas menyamar jadi tembok lenyap.** Kita cuma memegang 40
+   tingkat teratas. Saat harga bergerak, tingkat yang tergeser keluar jendela terlihat
+   persis seperti tembok yang ditarik. Gejalanya kentara begitu tahu apa yang dicari:
+   **banjir kejadian bertuliskan "cuma 0 lot bertransaksi"**, dan satu emiten muncul
+   berkali-kali di harga berdekatan. Sekarang tingkat di luar jendela dilewati — tidak
+   terlihat bukan berarti hilang.
+
+3. **Deteksi yang diam-diam bergantung pada klik.** Absorpsi awalnya hanya tercatat di
+   dalam handler `/api/orderbook`, jadi baru muncul kalau panel detail dibuka. Untuk
+   fitur yang gunanya justru memberi tahu hal yang belum kita lihat, itu cacat. Sekarang
+   ikut dipindai untuk semua emiten yang dilanggan.
+
+### Di mana tampilnya
+
+Pita **Kejadian orderbook** menempel di dasar kolom Live Trade — di luar `.colbody`,
+jadi tidak ikut menggulung bersama tabel transaksi dan tidak pernah mendesaknya. Kode
+emitennya bisa diklik untuk membuka panel detail. Warna label mengikuti **arti**, bukan
+sisi: merah untuk niat palsu, hijau untuk level yang benar jebol, kuning untuk ada yang
+menahan.
+
+Panel detail per emiten juga menampilkan tangga buku terpadu — sisa bid/ask bersanding
+dengan footprint agresif di harga yang sama — beserta spread dan penanda absorpsi per
+tingkat.
+
+> **Beda cakupan waktu yang wajib diingat.** `dimakan`/`isiUlang` hanya mencakup sejak
+> emiten itu mulai dilanggan OB2, sementara footprint mencakup sejak pembukaan.
+> Membandingkan keduanya langsung akan melebih-lebihkan. Karena itu absorpsi ditentukan
+> dari riwayat buku saja, bukan dari perbandingan footprint dengan sisa order. Panel
+> menyebutkan jam mulai pemantauan supaya bedanya tidak tersembunyi.
+
 ## Kelengkapan data — apa yang rusak kalau perekaman bolong
 
 Angka kumulatif hanya benar kalau arsip hari itu mulai dari pembukaan. Kalau scanner baru
@@ -742,6 +840,54 @@ ps -o etime= -p $(systemctl --user show whale-collector.service -p MainPID --val
 tail -5 logs/frames.jsonl
 ```
 
+## Logout sendiri berulang kali — koneksi ganda (diperbaiki 19 Agu 2026)
+
+Gejalanya: sesi mati sendiri berkali-kali sehari, ditutup `4001` disertai
+`invalid signature`, tanpa pola waktu yang jelas. Sempat diduga penyebabnya browser
+(tab idle di LibreWolf), padahal sesi hidup di collector, bukan di browser.
+
+**Akar masalahnya dua koneksi hidup berbarengan.** Alurnya:
+
+1. `requestQr()` memanggil `ipot.close()` untuk menyambung ulang lebih dulu
+   (`STALE_LOGIN_MS`, lihat bagian sebelumnya).
+2. Handler `closed` menjadwalkan reconnect otomatis 2 detik kemudian.
+3. `requestQr()` **juga** memanggil `startSession()` langsung.
+4. `connect()` menimpa `this.ws` tanpa menutup socket yang lama.
+
+Hasilnya dua handshake berjarak ~2 detik ke `appsession` yang sama, dan IPOT memutus
+keduanya. Buktinya bersih: **kelima sesi yang mati didahului dua handshake berjarak ~2
+detik; satu-satunya sesi yang selamat tidak punya itu.**
+
+Perbaikannya di dua sisi, dan dua-duanya perlu:
+
+```ts
+// ipot.ts — connect() tidak boleh meninggalkan socket lama menggantung
+if (this.ws) {
+  try { this.ws.removeAllListeners(); this.ws.terminate(); } catch { /* sudah mati */ }
+  this.ws = null;
+}
+
+// collector.ts — startSession() membatalkan reconnect yang sedang antre
+if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+```
+
+Setelah itu sesi bertahan 234 detik tanpa satu pun tanda kematian, dan langganan OB2
+yang sebelumnya selalu `NOSERVICE` langsung dibalas `{"status":"OK"}`.
+
+Bug ini juga yang membuat kesimpulan "OB2 ditolak" di `_DOC/0001` sempat salah — kedua
+ujinya kebetulan menabrak sesi yang sudah mati karenanya.
+
+### Watchdog ikut membunuh sesi yang sehat
+
+Terpisah tapi bergejala mirip: watchdog memutus koneksi kalau tidak ada pesan selama 75
+detik. Aturan itu berlaku 24 jam, jadi saat istirahat siang (12:00–13:30) — ketika feed
+memang sunyi karena bursa tutup — koneksi yang sepenuhnya sehat ikut dibunuh dan menuntut
+scan QR ulang. Sekarang digerbangi jam bursa:
+
+```ts
+if (marketLikelyOpen() && now - this.lastMessageAt > 75_000) { … }
+```
+
 ## Peringatan belum login
 
 Bursa buka tapi scanner tidak login berarti `subscribe LT` tidak pernah terkirim, jadi
@@ -774,8 +920,14 @@ diabaikan diam-diam — scanner tidak boleh berhenti karena notifikasi.
   tetap perlu tiap restart.
 - Baseline relatif per emiten (padanan slider "kepekaan anomali") belum ada — burst masih
   ambang absolut. Arsip harian sekarang bisa jadi sumber data historisnya.
-- OB2 (orderbook) untuk **spread** dan **offer wall** — per simbol, jadi tidak scalable
-  untuk memindai semua ~686 emiten sekaligus. Untuk sisi agresor, OB2 **tidak lagi
-  dibutuhkan** (sudah ada di feed LT).
+- Ambang narasi kejadian belum dikalibrasi atas satu hari penuh. Sesi 19 Agu 2026
+  menghasilkan 50 kejadian dalam 2 menit, 27 di antaranya `DITARIK` dan terkonsentrasi
+  di beberapa emiten ramai. Belum tentu salah, tapi kalau polanya bertahan sepanjang
+  hari, `AMBANG_SPOOF` atau `KELIPATAN_BESAR` di `events.ts` layak dinaikkan.
+- Batas `OB2_MAX = 120` emiten belum diuji atas satu hari penuh. Angka itu dipilih
+  karena 108 emiten sudah mencakup 87% nilai transaksi pasar; perlu dicek apakah roster
+  sehari penuh benar-benar melampauinya.
+- Skor kejujuran buku per emiten (berapa persen tembok besarnya lenyap tanpa
+  bertransaksi) — datanya sudah ada di `events.ts`, kolomnya di tabel Kandidat belum.
 - Arti angka di dalam slot `[13]`/`[14]` (kemungkinan nomor order) — butuh arsip sehari
   penuh, jalankan `tools/analyze-lt.ts`.

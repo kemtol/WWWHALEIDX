@@ -139,13 +139,46 @@ Belum ada: penandaan eksplisit "sedang di area penting" per baris (mis. "di valu
 area", "breakout OR", "di +2σ") — angka-angkanya sudah tampil, simpulan visualnya
 belum diwarnai/diberi label.
 
-### 5.2 Perekaman OB2 untuk kandidat otomatis
+### 5.2 OB2 untuk kandidat — SUDAH JALAN (19 Agu 2026)
 
-OB2 (orderbook) tetap **tidak** direkam untuk semua emiten — langganannya per simbol,
-tidak scalable ke ~686 emiten. Yang direkam adalah OB2 emiten **kandidat otomatis**:
-emiten yang lolos kriteria rame/HAKA hari itu, jumlahnya dibatasi (top N) supaya
-tetap ringan. Rekaman ini jadi bahan analisa AI (5.3) dan nantinya menambah sinyal
-manual (spread, offer wall).
+OB2 (orderbook) tidak dilanggan untuk semua ~686 emiten — per simbol, dan ongkosnya
+14–22 KB/menit masing-masing. Yang dilanggan adalah **roster kandidat hari itu**: tiap
+emiten yang pernah masuk tabel Kandidat, ditahan sampai `OB2_MAX = 120`, disimpan ke
+`logs/ob2-roster.json` supaya restart `whale-app` tidak menghilangkan daftarnya.
+
+Langganan **tidak** digerakkan klik. Sempat dipertimbangkan memasangnya saat emiten
+dibuka, dan itu keliru: kejadian orderbook tidak menunggu kita melihat, dan fitur yang
+gunanya memberi tahu hal yang belum diperhatikan tidak boleh bergantung pada perhatian.
+
+OB2 mentah tidak diarsipkan (555 MB/hari untuk 120 emiten vs 77 MB/hari milik LT). Yang
+disimpan hanya turunan fiturnya.
+
+### 5.2b Arah produk: tampilkan yang TIDAK ada di aplikasi sekuritas
+
+Ini koreksi arah yang datang dari pengguna pada 19 Agu 2026, dan mengikat semua fitur
+orderbook sesudahnya.
+
+Versi pertama tangga buku menampilkan bid/ask beserta ukurannya — dan keberatannya sah:
+itu persis yang sudah ditampilkan aplikasi sekuritas, jadi membangunnya ulang tidak
+menambah apa-apa. Yang layak dibangun adalah **informasi yang tidak mereka punya**.
+
+Aplikasi sekuritas menampilkan tembok yang ada **sekarang**. Ia tidak menyimpan riwayat
+tiap tingkat harga, dan tidak pernah mencocokkan perubahan buku dengan transaksi yang
+benar-benar terjadi di harga itu. Dari dua hal itulah muncul pembedaan yang tidak bisa
+mereka lakukan:
+
+```
+tembok hilang + ada transaksi sebesar itu   → JEBOL, level benar-benar patah
+tembok hilang + nyaris tanpa transaksi      → DITARIK, temboknya cuma pajangan
+```
+
+Keduanya terlihat identik di layar broker — angka yang tadi ada lalu tidak ada — padahal
+artinya berlawanan. Narasi kejadian (`src/events.ts`) melaporkan empat jenis: `DITARIK`,
+`JEBOL`, `ABSORPSI` (dimakan melebihi ukuran terbesarnya tapi masih berdiri), dan tembok
+baru. Ambangnya relatif terhadap buku emiten itu sendiri, bukan angka mutlak.
+
+Ujian untuk fitur orderbook berikutnya jadi satu kalimat: **apakah pengguna bisa
+mendapatkan ini dengan menatap aplikasi sekuritasnya?** Kalau bisa, jangan dibangun.
 
 ### 5.3 Tombol rekomendasi AI — SUDAH JALAN (18 Agu 2026)
 
@@ -207,8 +240,15 @@ panggilan sehingga cache prompt DeepSeek menanggung ~49% token input.
   60–90 hari) yang belum dibuat. Begitu ada, retensi arsip mentah bisa turun dari
   30 hari ke ~7 hari karena tugasnya tinggal memulihkan konteks hari berjalan.
 - OB2 untuk **seluruh** emiten tetap tidak dikerjakan — langganan per simbol, tidak
-  scalable ke ~686. Untuk kandidat otomatis sudah masuk rencana di 5.2. Untuk sisi
-  agresor sendiri OB2 tidak lagi dibutuhkan.
+  scalable ke ~686. Untuk kandidat sudah jalan (5.2). Untuk sisi agresor OB2 tidak
+  dibutuhkan sama sekali.
+- **Kalibrasi ambang narasi kejadian** atas satu hari penuh. Sesi 19 Agu 2026 (2 menit)
+  menghasilkan 50 kejadian, 27 di antaranya `DITARIK` dan terkonsentrasi di beberapa
+  emiten ramai. Belum tentu berlebihan, tapi belum teruji sehari penuh.
+- **Skor kejujuran buku per emiten** — berapa persen tembok besarnya lenyap tanpa
+  bertransaksi, sebagai kolom di tabel Kandidat. Datanya sudah dihasilkan `events.ts`.
+- Turunan LT x OB2 x VWAP yang belum dibangun: agregat spoof per emiten dan posisi
+  tembok relatif terhadap VWAP. Spread sudah ada.
 
 ## 7. Referensi
 

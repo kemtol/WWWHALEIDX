@@ -35,7 +35,8 @@ Dev cepat tanpa TLS: `cd scanner && npm run collector` + `npm run app`
 | **Live trade + filter** | nilai, lot, papan, harga, %, vs VWAP, jam, burst |
 | **HAKA/HAKI** | sisi agresor dibaca **langsung dari feed**, bukan tebakan tick rule |
 | **Kandidat** | satu tabel peringkat: kandidat hari penuh + tekanan jendela 1m/5m/15m |
-| **Detail per emiten** | footprint per harga, delta kumulatif, POC/value area, pita VWAP, opening range, divergensi, laju tape |
+| **Detail per emiten** | footprint per harga, delta kumulatif, POC/value area, pita VWAP, opening range, divergensi, laju tape, tangga buku + spread |
+| **Narasi kejadian** | tembok **ditarik** vs **jebol** vs **diserap** — pembedaan yang tidak bisa dilakukan aplikasi sekuritas karena menuntut OB2 dan LT dibaca berbarengan |
 | **Arsip + riwayat** | tiap transaksi disimpan mentah per hari, bisa ditelusuri mundur |
 | **Analisa AI** | DeepSeek menganalisa kandidat → pick dengan entry/invalidasi/target |
 | **Percakapan sehari** | satu hari = satu benang; analisa lanjutan menjelaskan pick yang dikeluarkan, dan bisa ditanya lanjut lewat chat |
@@ -46,9 +47,12 @@ HAKA/HAKI, cara membaca tiap indikator, dan alasan di balik keputusan rancangan 
 baca itu sebelum mengubah apa pun.
 
 `_DOC/0000_whale_scanner.md` adalah PRD-nya: tujuan, arah, dan apa yang sengaja belum
-dikerjakan. `_DOC/0001_protokol_ipot_lengkap.md` memuat kosakata perintah IPOT hasil
-tapping klien resmi — bentuk langganan OB2/SS2/BAR1 dan query broker summary yang belum
-kita pakai, plus daftar klaim keliru yang beredar di project lain.
+dikerjakan — termasuk **arah produk** yang mengikat semua fitur orderbook (§5.2b):
+kalau sebuah informasi bisa didapat dengan menatap aplikasi sekuritas, jangan dibangun.
+`_DOC/0001_protokol_ipot_lengkap.md` memuat kosakata perintah IPOT hasil tapping klien
+resmi, format OB2 yang sudah dipecahkan, plus daftar klaim keliru yang beredar di project
+lain — dan riwayat dua kesimpulan keliru kita sendiri soal OB2, yang polanya layak
+diingat.
 
 ## Riwayat singkat
 
