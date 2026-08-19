@@ -699,7 +699,7 @@ milik LT) dan dikecualikan dari `logs/frames.jsonl`. Yang disimpan cuma turunann
 |---|---|---|
 | `DITARIK` | tembok susut ≥60%, transaksi <25% dari yang susut | niat palsu — ditarik pemasangnya |
 | `JEBOL` | tembok susut ≥60%, transaksi ≥60% dari yang susut | level benar-benar dihajar |
-| `ABSORPSI` | dimakan melebihi ukuran terbesarnya sendiri, diisi ulang ≥3×, masih berdiri | ada yang sengaja menahan di situ |
+| `ABSORPSI` | **benar-benar dimakan** melebihi ukuran terbesarnya sendiri, ≥60% penyusutannya cocok dengan transaksi, diisi ulang ≥3×, masih berdiri | ada yang sengaja menahan di situ |
 | `tembok baru` | tingkat baru ≥6× median buku | niat yang baru dipasang, belum teruji |
 
 Ambangnya **relatif terhadap buku emiten itu sendiri** (kelipatan median tingkat), bukan
@@ -751,6 +751,42 @@ menahan.
 Panel detail per emiten juga menampilkan tangga buku terpadu — sisa bid/ask bersanding
 dengan footprint agresif di harga yang sama — beserta spread dan penanda absorpsi per
 tingkat.
+
+### "Dimakan" tidak sama dengan "menyusut"
+
+Buku sendiri tidak bisa membedakan order yang **tereksekusi** dari order yang
+**dibatalkan pemasangnya** — dua-duanya cuma membuat tingkat mengecil. Versi pertama
+menjumlahkan keduanya ke satu penghitung bernama `dimakan`, dan itu melebih-lebihkan
+tekanan yang sebenarnya terjadi.
+
+Buktinya dari MEDC 19 Agu 2026, dicocokkan dengan arsip transaksi sejak buku dipantau:
+
+| Harga | "dimakan" versi lama | Transaksi nyata | Sebenarnya ditarik |
+|---|---|---|---|
+| 1.430 | 19.718 lot | 12.957 lot | 6.761 (34%) |
+| 1.425 | 23.661 lot | 8.492 lot | **15.169 (64%)** |
+| 1.420 | 18.241 lot | 12.805 lot | 5.436 (30%) |
+
+Tingkat 1.425 hampir seluruhnya order yang dibatalkan, bukan diserap — persis lawan dari
+kesimpulan yang ditampilkan.
+
+Sekarang `LevelStat` memisahkan `susut` (penyusutan apa pun) dari `trx` (transaksi nyata
+di harga itu, dari feed LT), dan `belahSusut()` membaginya:
+
+```ts
+dimakan = min(susut, trx)      // mustahil dimakan lebih banyak daripada yang bertransaksi
+ditarik = susut - dimakan      // susut yang melampaui seluruh transaksi pasti pembatalan
+```
+
+Keduanya akumulasi atas jendela waktu yang sama, jadi `min()` adalah atribusi yang sah.
+Absorpsi kini menuntut `dimakan` ≥ `PORSI_DIMAKAN_MIN` (60%) dari total penyusutan —
+tingkat yang ordernya berkedip-kedip tidak lagi lolos. Contoh nyata setelah perbaikan:
+PIPA di 148 melaporkan *dimakan 41.604 lot, 25.312 lot lagi ditarik*; versi lama akan
+menulis satu angka 66.916 lot.
+
+Biasnya yang perlu diketahui: transaksi di sebuah harga bisa menghantam likuiditas yang
+tidak pernah masuk 40 tingkat teratas kita, sehingga `dimakan` cenderung sedikit
+**berlebih** — arah yang longgar untuk absorpsi, dan itu alasan ambang 60% dibuat ketat.
 
 > **Beda cakupan waktu yang wajib diingat.** `dimakan`/`isiUlang` hanya mencakup sejak
 > emiten itu mulai dilanggan OB2, sementara footprint mencakup sejak pembukaan.

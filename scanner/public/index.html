@@ -403,6 +403,7 @@
   .ob tr.abs{background:rgba(210,153,34,.13)}
   .ob tr.abs .hrg{color:var(--warn)}
   .obabs{font-size:.62rem;color:var(--warn);padding:2px 3px 4px;line-height:1.4}
+  .obabs b{color:var(--warn);font-weight:700}
   /* Narasi kejadian — pita tetap di dasar kolom Live Trade. Tingginya dipatok supaya
      tabel di atasnya tidak pernah terdesak; isinya yang menggulung. */
   .kjd{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);
@@ -1384,9 +1385,16 @@ async function loadBook(sym) {
       </tr>`;
       if (!x.absorpsi) return utama;
       const a = x.absorpsi;
+      // "Dimakan" kini berarti benar-benar tereksekusi, dicocokkan dengan transaksi LT di
+      // harga ini. Yang ditarik disebut terpisah — dulu keduanya dijumlahkan jadi satu
+      // angka "dimakan", dan itu melebih-lebihkan tekanan yang sebenarnya terjadi.
+      const tarik = a.ditarik > 0 ? `, ${nf.format(a.ditarik)} lot lagi ditarik` : '';
+      const arah = a.sisi === 'ask'
+        ? 'pembeli terus menyerbu ke sini tapi jualannya tidak habis-habis'
+        : 'penjual terus membanting ke sini tapi selalu ada yang menadah';
       return utama + `<tr class="abs"><td colspan="7" class="obabs">⚠ ABSORPSI di ${nf.format(x.price)} —
-        tembok ${a.sisi === 'ask' ? 'jual' : 'beli'} dimakan ${nf.format(a.dimakan)} lot, diisi ulang
-        ${a.isiUlang}× sejak dipantau, dan masih berdiri</td></tr>`;
+        tembok ${a.sisi === 'ask' ? 'jual' : 'beli'} <b>benar-benar dimakan ${nf.format(a.dimakan)} lot</b>${tarik};
+        diisi ulang ${a.isiUlang}× sejak dipantau dan masih berdiri — ${arah}</td></tr>`;
     }).join('');
 
     box.innerHTML =

@@ -12,8 +12,8 @@ import { MarketBoard, buildCandidates, mergeRows } from './market.js';
 import { buildPayload, renderPrompt, flattenTranscript } from './prompt.js';
 import { askAi, chatAi, aiConfigured, type ChatMsg } from './ai.js';
 import { AiHistory } from './aihist.js';
-import { OrderBooks } from './orderbook.js';
-import { EventLog, JEDA_PINDAI_MS } from './events.js';
+import { OrderBooks, belahSusut } from './orderbook.js';
+import { EventLog, JEDA_PINDAI_MS, PORSI_DIMAKAN_MIN } from './events.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
 /**
@@ -134,6 +134,11 @@ bus.on('message', async (m) => {
       let tm = tradeTally.get(t.symbol);
       if (!tm) { tm = new Map(); tradeTally.set(t.symbol, tm); }
       tm.set(t.price, (tm.get(t.price) ?? 0) + t.lot);
+      // Juga diakumulasi ke riwayat tingkat. Tanpa ini buku tidak punya cara membedakan
+      // tembok yang tereksekusi dari tembok yang dibatalkan — dua-duanya cuma "mengecil".
+      // Agresor beli memakan sisi jual, dan sebaliknya. Transaksi lelang (aggressor
+      // null) tidak memakan tembok siapa pun — order disilangkan pada satu harga.
+      if (t.aggressor) books.trade(t.symbol, t.price, t.lot, t.aggressor === 'buy' ? 'ask' : 'bid');
     }
     const { pass, burst, count } = scanner.evaluate(t);
     if (pass) {
@@ -336,16 +341,21 @@ ui.onApi = async (path, q, reqBody) => {
 
       // ABSORPSI. Buktinya dari riwayat buku, BUKAN dari perbandingan footprint vs sisa:
       // footprint dihitung sejak pembukaan sementara buku baru diamati sejak dilanggan,
-      // jadi membandingkan keduanya langsung akan melebih-lebihkan. Yang dipakai:
-      // temboknya sudah dimakan banyak, diisi ulang berkali-kali, dan MASIH berdiri.
-      let absorpsi: { sisi: 'bid' | 'ask'; dimakan: number; isiUlang: number } | null = null;
+      // jadi membandingkan keduanya langsung akan melebih-lebihkan.
+      //
+      // Yang dituntut: temboknya benar-benar DIMAKAN transaksi melebihi ukuran
+      // terbesarnya, diisi ulang berkali-kali, dan MASIH berdiri. Penyusutan karena
+      // order dibatalkan sengaja tidak dihitung — itu justru lawan dari absorpsi.
+      let absorpsi: { sisi: 'bid' | 'ask'; dimakan: number; ditarik: number; isiUlang: number } | null = null;
+      const bagi = st ? belahSusut(st) : null;
       // Batas bawah 500 lot menyamakan ambang dengan narasi kejadian: tanpa itu tingkat
       // receh yang kebetulan diisi ulang tiga kali ikut ditandai "ABSORPSI 120 lot".
-      if (st && st.isiUlang >= 3 && st.dimakan >= st.puncak && st.dimakan >= 500 && (sisaJual > 0 || sisaBeli > 0)) {
+      if (st && bagi && st.isiUlang >= 3 && bagi.dimakan >= st.puncak && bagi.dimakan >= 500
+          && bagi.dimakan >= st.susut * PORSI_DIMAKAN_MIN && (sisaJual > 0 || sisaBeli > 0)) {
         const sisi = sisaJual > 0 ? 'ask' as const : 'bid' as const;
-        absorpsi = { sisi, dimakan: st.dimakan, isiUlang: st.isiUlang };
+        absorpsi = { sisi, dimakan: bagi.dimakan, ditarik: bagi.ditarik, isiUlang: st.isiUlang };
         // Ikut masuk narasi — dicatat sekali per tingkat, bukan tiap kali panel dibuka.
-        events.catatAbsorpsi(code, price, sisi, st.dimakan, st.isiUlang);
+        events.catatAbsorpsi(code, price, sisi, bagi.dimakan, st.isiUlang);
       }
       return {
         price, sisaBeli, sisaJual, beliAgr, jualAgr,

@@ -1,4 +1,4 @@
-import type { OrderBooks } from './orderbook.js';
+import { belahSusut, type OrderBooks } from './orderbook.js';
 
 /**
  * Narasi kejadian orderbook.
@@ -42,6 +42,18 @@ const SUSUT_MIN = 0.6;
 const AMBANG_SPOOF = 0.25;
 /** Di atas ini, lenyapnya memang karena dihajar transaksi. */
 const AMBANG_JEBOL = 0.6;
+/**
+ * Absorpsi menuntut penyusutan tingkat itu **didominasi** transaksi nyata, bukan
+ * pembatalan order. Tanpa syarat ini, tingkat yang ordernya berkedip-kedip — dipasang
+ * lalu dibatalkan berulang kali — ikut terbaca sebagai "diserap", padahal tidak ada
+ * yang menyerap apa pun.
+ *
+ * Terbukti bukan kekhawatiran teoretis: MEDC 19 Agu 2026 di harga 1.425 tercatat susut
+ * 23.661 lot, tapi transaksi nyata di harga itu sejak buku dipantau hanya 8.492 lot —
+ * 64% sisanya order yang ditarik. Di 1.430 dan 1.420 sebaliknya, mayoritas memang
+ * dimakan (66% dan 70%), jadi keduanya absorpsi sungguhan.
+ */
+export const PORSI_DIMAKAN_MIN = 0.6;
 
 /** Jarak antar-potret. Tembok ditarik atau dijebol dalam hitungan puluhan detik, bukan
  *  dua detik — membandingkan potret 2 detik menghasilkan nol kejadian karena nyaris tidak
@@ -125,15 +137,19 @@ export class EventLog {
           }
         }
 
-        // Absorpsi: tembok yang sudah dimakan melebihi ukuran terbesarnya sendiri tapi
-        // masih berdiri. Artinya ia diisi ulang terus — ada yang sengaja menahan di situ.
+        // Absorpsi: tembok yang benar-benar DIMAKAN transaksi melebihi ukuran terbesarnya
+        // sendiri tapi masih berdiri. Artinya ia diisi ulang terus — ada yang sengaja
+        // menahan di situ. Penyusutan karena order dibatalkan tidak dihitung; itu justru
+        // lawan dari absorpsi, dan dulu sempat ikut terhitung sehingga melebih-lebihkan.
         // Ini dipindai untuk semua emiten yang dilanggan, bukan cuma yang sedang dibuka,
         // karena kejadiannya tidak menunggu kita melihat.
         for (const [price, lotKini] of kini[sisi]) {
           if (lotKini < besar) continue;
           const st = books.statAt(code, price);
-          if (!st || st.isiUlang < 3 || st.dimakan < st.puncak) continue;
-          this.catatAbsorpsi(code, price, sisi, st.dimakan, st.isiUlang, now);
+          if (!st || st.isiUlang < 3) continue;
+          const { dimakan } = belahSusut(st);
+          if (dimakan < st.puncak || dimakan < st.susut * PORSI_DIMAKAN_MIN) continue;
+          this.catatAbsorpsi(code, price, sisi, dimakan, st.isiUlang, now);
         }
 
         // Tembok baru yang muncul mendadak — niat yang baru dipasang, layak diketahui

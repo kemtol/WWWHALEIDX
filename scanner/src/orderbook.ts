@@ -29,14 +29,35 @@ export interface BookLevel { price: number; lot: number }
  * dan masih berdiri bukan resistance biasa — ada yang sengaja menahan di situ.
  */
 export interface LevelStat {
-  /** Total lot yang menyusut dari tingkat ini (dimakan atau ditarik). */
-  dimakan: number;
+  /** Total lot yang menyusut dari tingkat ini — apa pun sebabnya. */
+  susut: number;
+  /** Total lot yang benar-benar bertransaksi di harga ini sejak dipantau (dari feed LT). */
+  trx: number;
   /** Berapa kali tingkat ini bertambah setelah sebelumnya ada. */
   isiUlang: number;
   /** Ukuran terbesar yang pernah terlihat. */
   puncak: number;
   /** Sisi tempat riwayat ini terjadi saat terakhir diperbarui. */
   sisi: 'bid' | 'ask';
+}
+
+/**
+ * Pisahkan penyusutan menjadi yang benar-benar DIMAKAN transaksi dan yang cuma DITARIK.
+ *
+ * Buku sendiri tidak bisa membedakannya — sebuah tingkat yang mengecil terlihat sama
+ * saja apakah ordernya tereksekusi atau dibatalkan pemasangnya. Pembedanya harus datang
+ * dari feed LT. Karena `susut` dan `trx` sama-sama akumulasi atas jendela waktu yang
+ * sama, `min()` adalah atribusi yang sah: mustahil dimakan lebih banyak daripada yang
+ * bertransaksi, dan susut yang melampaui seluruh transaksi pasti pembatalan.
+ *
+ * Biasnya perlu diketahui: transaksi di harga ini bisa saja menghantam likuiditas yang
+ * tidak pernah masuk 40 tingkat teratas kita, atau sisi lain di harga yang sama pada
+ * waktu berbeda. Itu membuat `dimakan` cenderung sedikit **berlebih**, bukan kurang —
+ * arah yang lebih longgar untuk absorpsi, jadi ambangnya dibuat ketat di `events.ts`.
+ */
+export function belahSusut(s: LevelStat): { dimakan: number; ditarik: number } {
+  const dimakan = Math.min(s.susut, s.trx);
+  return { dimakan, ditarik: s.susut - dimakan };
 }
 
 export interface BookView {
@@ -75,15 +96,26 @@ class Book {
 
   stat = new Map<number, LevelStat>();
 
+  private stok(price: number, sisi: 'bid' | 'ask'): LevelStat {
+    let s = this.stat.get(price);
+    if (!s) { s = { susut: 0, trx: 0, isiUlang: 0, puncak: 0, sisi }; this.stat.set(price, s); }
+    return s;
+  }
+
+  /** Lot yang benar-benar bertransaksi di harga ini, dari feed LT. Dicatat walau
+   *  tingkatnya belum pernah terlihat di buku — transaksi bisa mendahului frame OB2. */
+  trade(price: number, lot: number, sisi: 'bid' | 'ask') {
+    this.stok(price, sisi).trx += lot;
+  }
+
   /** Catat perubahan ukuran satu tingkat. Menyusut = dimakan atau ditarik; bertambah
    *  pada tingkat yang sudah ada = diisi ulang. Keduanya tidak terlihat di aplikasi
    *  sekuritas, dan justru itu yang membedakan tembok sungguhan dari tembok pajangan. */
   private catat(price: number, lama: number, baru: number, sisi: 'bid' | 'ask') {
-    let s = this.stat.get(price);
-    if (!s) { s = { dimakan: 0, isiUlang: 0, puncak: 0, sisi }; this.stat.set(price, s); }
+    const s = this.stok(price, sisi);
     s.sisi = sisi;
     if (baru > s.puncak) s.puncak = baru;
-    if (lama > 0 && baru < lama) s.dimakan += lama - baru;
+    if (lama > 0 && baru < lama) s.susut += lama - baru;
     else if (lama > 0 && baru > lama) s.isiUlang++;
   }
 
@@ -151,6 +183,12 @@ export class OrderBooks {
       // dipakai membangun buku separuh jadi yang tampak lengkap padahal bolong.
       b.update(o.recinfo, ts);
     }
+  }
+
+  /** Transaksi LT di harga tertentu. Hanya dicatat untuk emiten yang bukunya dipantau —
+   *  tanpa buku, angkanya tidak ada yang bisa dibandingkan. */
+  trade(code: string, price: number, lot: number, sisi: 'bid' | 'ask') {
+    this.books.get(code)?.trade(price, lot, sisi);
   }
 
   get(code: string, depth = 10): BookView | null {

@@ -172,6 +172,12 @@ tembok hilang + ada transaksi sebesar itu   → JEBOL, level benar-benar patah
 tembok hilang + nyaris tanpa transaksi      → DITARIK, temboknya cuma pajangan
 ```
 
+Pembedaan itu menuntut kedisiplinan sampai ke tingkat kata. Versi pertama menyebut
+seluruh penyusutan tingkat sebagai "dimakan", padahal order yang dibatalkan ikut
+terhitung — dan pada MEDC 1.425 (19 Agu 2026) 64% dari yang dilaporkan "diserap 23.661
+lot" ternyata cuma order yang ditarik. Sekarang penyusutan dipisah menjadi `dimakan`
+(cocok dengan transaksi LT) dan `ditarik`, dan absorpsi menuntut porsi dimakan ≥60%.
+
 Keduanya terlihat identik di layar broker — angka yang tadi ada lalu tidak ada — padahal
 artinya berlawanan. Narasi kejadian (`src/events.ts`) melaporkan empat jenis: `DITARIK`,
 `JEBOL`, `ABSORPSI` (dimakan melebihi ukuran terbesarnya tapi masih berdiri), dan tembok
