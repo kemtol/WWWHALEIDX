@@ -61,7 +61,7 @@ const scanner = new Scanner({ ...DEFAULT_FILTER, ...loadSavedConfig() });
 /** Dibaca saja di sini — collector yang menulis. */
 const archive = new TradeArchive(join(ROOT, 'logs'));
 const tracker = new SymbolTracker();
-/** Papan pasar: agregasi harian SEMUA emiten — sumber tab Kandidat. Diisi dari
+/** Papan pasar: agregasi harian SEMUA emiten — sumber kolom Watchlist. Diisi dari
  *  arsip saat start (warmup), lalu inkremental dari feed. */
 const board = new MarketBoard();
 const bus = new BusClient();
@@ -545,9 +545,9 @@ ui.onCommand = (msg) => {
 };
 
 /**
- * Orderbook mengikuti daftar Kandidat hari itu — bukan menunggu diklik.
+ * Orderbook mengikuti daftar Watchlist hari itu — bukan menunggu diklik.
  *
- * `roster` menumpuk: sekali sebuah emiten masuk Kandidat hari ini, orderbook-nya
+ * `roster` menumpuk: sekali sebuah emiten masuk Watchlist hari ini, orderbook-nya
  * dilanggan sampai ganti hari. Melepasnya begitu ia keluar peringkat akan membuat
  * emiten yang naik-turun di ambang berlangganan-berhenti berkali-kali, dan tiap
  * langganan baru memaksa server mengirim ULANG seluruh buku (frame INIT, yang jauh
@@ -565,7 +565,7 @@ ui.onCommand = (msg) => {
 const OB2_MAX = 120;
 const ob2 = { date: '', roster: new Set<string>(), live: new Set<string>(), penuh: false };
 
-/** Roster disimpan ke disk karena isinya "emiten yang PERNAH masuk Kandidat hari ini" —
+/** Roster disimpan ke disk karena isinya "emiten yang PERNAH masuk Watchlist hari ini" —
  *  fakta sepanjang hari, bukan keadaan sesaat. Tanpa ini app restart menghapusnya, dan
  *  emiten yang tadi pagi ramai lalu keluar peringkat tidak akan dilanggan lagi meski
  *  syaratnya sudah pernah terpenuhi (SSIA, 19 Agu 2026). */
@@ -640,7 +640,7 @@ setInterval(() => {
 function warmup() {
   const today = wibDateStr();
   // Roster OB2 dipulihkan lebih dulu supaya tick pertama sudah melanggan emiten yang
-  // tadi pagi masuk Kandidat, bukan hanya yang kebetulan ramai detik ini.
+  // tadi pagi masuk Watchlist, bukan hanya yang kebetulan ramai detik ini.
   loadOb2Roster(today);
   const lines = archive.readDay(today);
   if (!lines.length) return;

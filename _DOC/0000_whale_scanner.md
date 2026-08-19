@@ -54,7 +54,7 @@ IPOT WebSocket ──> COLLECTOR (src/collector.ts)
                      └──(unix socket, src/bus.ts)──> APP (src/app.ts)
                                                        filters.ts  burst + HAKA/HAKI
                                                        symbol.ts   delta + footprint
-                                                       market.ts   papan pasar (kolom Kandidat)
+                                                       market.ts   papan pasar (kolom Watchlist)
                                                        history.ts  query arsip
                                                        server.ts   UI + /api/*
                                                           │
@@ -74,7 +74,7 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
   tanpa endpoint HTTP terpisah, semua lewat satu WebSocket.
 - **Live trade** — mengalir ke tabel begitu login berhasil. Panel QR duduk di dalam
   kolom Live Trade dan digantikan tabel saat login; dashboard tidak pernah tergerbang,
-  karena riwayat/Kandidat/AI semuanya jalan dari arsip tanpa sesi.
+  karena riwayat/Watchlist/AI semuanya jalan dari arsip tanpa sesi.
 - **Filter transaksi** — emiten (watchlist), nilai minimum, lot minimum, papan
   (RG/NG/TN), rentang harga, rentang % perubahan, rentang % terhadap VWAP, jam, dan
   **burst** (N transaksi dalam T detik, jendela bergulir per emiten).
@@ -93,7 +93,7 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
 - **Arsip harian & riwayat** — setiap transaksi disimpan mentah per hari (~77 MB pada
   hari yang mengalir penuh; hari lampau dipadatkan gzip ~5,4×), bisa dilihat mundur per
   rentang jam beserta peringkat emiten teramai.
-- **Analisa AI + percakapan sehari** — tombol AI di kolom Kandidat mengirim kandidat yang sedang
+- **Analisa AI + percakapan sehari** — tombol AI di kolom Watchlist mengirim kandidat yang sedang
   tampil ke DeepSeek, hasilnya dirender jadi pick dengan entry/invalidasi/target. **Satu
   hari = satu benang percakapan**: klik berikutnya menyambung, bukan memulai baru, jadi
   model menjelaskan pick yang dikeluarkan alih-alih menghilangkannya diam-diam. Ada
@@ -106,12 +106,12 @@ Detail protokol, format pipe LT yang terverifikasi, dan cara jalan — ada di
   breakout-nya, pita VWAP ±1σ/±2σ dengan posisi harga dalam satuan σ, dan laju tape
   (transaksi/detik dibanding rata-rata hari ini). Semua dari feed LT, tanpa OB2. Yang
   bergantung pada perekaman sejak pembukaan diberi tanda kalau arsipnya tidak lengkap.
-- **Kandidat** — kolom kanan: SATU tabel yang menggabungkan peringkat kandidat (hari
+- **Watchlist** — kolom kanan: SATU tabel yang menggabungkan peringkat kandidat (hari
   penuh: nilai, chg%, HAKA%, delta, zVwap, laju tape, divergensi, POC/value area)
   dengan kolom tekanan jendela bergulir 1m/5m/15m (nilai jendela, H vs K, HAKA%,
   arah, bukti). Baris = union peringkat nilai harian dan nilai jendela; live tiap
   2 detik, sort per kolom, klik baris membuka panel detail. Saat kolom filter
-  diciutkan, kolom tengah & kanan bagi rata (50/50) supaya seluruh kolom Kandidat
+  diciutkan, kolom tengah & kanan bagi rata (50/50) supaya seluruh kolom Watchlist
   muat; kalau layar lebih sempit, tabel scroll horizontal tanpa memotong angka.
   Di mode riwayat menampilkan tanggal yang dipilih dari arsip (kolom jendela
   kosong).
@@ -132,7 +132,7 @@ pemakaian nyata: sekitar VWAP, mendekati high/low hari ini, penutupan kemarin, d
 angka bulat psikologis.
 
 Sudah ada: indikator intraday di panel detail (pita VWAP ±1σ/±2σ, opening range +
-status breakout, POC & value area 70%, divergensi harga–delta) dan **Kandidat** —
+status breakout, POC & value area 70%, divergensi harga–delta) dan **Watchlist** —
 satu tabel peringkat lintas emiten di kolom kanan (kandidat hari penuh + tekanan
 jendela), live tiap 2 detik.
 Belum ada: penandaan eksplisit "sedang di area penting" per baris (mis. "di value
@@ -143,7 +143,7 @@ belum diwarnai/diberi label.
 
 OB2 (orderbook) tidak dilanggan untuk semua ~686 emiten — per simbol, dan ongkosnya
 14–22 KB/menit masing-masing. Yang dilanggan adalah **roster kandidat hari itu**: tiap
-emiten yang pernah masuk tabel Kandidat, ditahan sampai `OB2_MAX = 120`, disimpan ke
+emiten yang pernah masuk tabel Watchlist, ditahan sampai `OB2_MAX = 120`, disimpan ke
 `logs/ob2-roster.json` supaya restart `whale-app` tidak menghilangkan daftarnya.
 
 Langganan **tidak** digerakkan klik. Sempat dipertimbangkan memasangnya saat emiten
@@ -223,7 +223,7 @@ footprint 3 level teramai. "Analisa semua isi file" pada requirement dibaca seba
 "semua sinyal penting dari file"; ringkasannya selalu bisa diperiksa ulang karena arsip
 mentahnya tetap ada.
 
-Kandidatnya diambil dari `candidatesFor()` yang sama dengan tabel Kandidat dan diikat
+Kandidatnya diambil dari `candidatesFor()` yang sama dengan tabel Watchlist dan diikat
 konstanta `BOARD_N` yang sama — **yang dianalisa model dijamin persis yang dilihat
 manusia di layar**. Payload analisa sebelumnya ikut dikirim sebagai konteks pada analisa
 lanjutan, jadi model membandingkan angka, bukan cuma kesimpulan; prefiksnya identik tiap
@@ -252,7 +252,7 @@ panggilan sehingga cache prompt DeepSeek menanggung ~49% token input.
   menghasilkan 50 kejadian, 27 di antaranya `DITARIK` dan terkonsentrasi di beberapa
   emiten ramai. Belum tentu berlebihan, tapi belum teruji sehari penuh.
 - **Skor kejujuran buku per emiten** — berapa persen tembok besarnya lenyap tanpa
-  bertransaksi, sebagai kolom di tabel Kandidat. Datanya sudah dihasilkan `events.ts`.
+  bertransaksi, sebagai kolom di tabel Watchlist. Datanya sudah dihasilkan `events.ts`.
 - Turunan LT x OB2 x VWAP yang belum dibangun: agregat spoof per emiten dan posisi
   tembok relatif terhadap VWAP. Spread sudah ada.
 

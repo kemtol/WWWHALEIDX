@@ -597,7 +597,7 @@
           </ol>
           <p class="lost hidden" id="lost"></p>
           <p class="hint" style="margin:1rem 0 0">
-            Hanya transaksi <b>live</b> yang butuh login. <b>Riwayat</b>, <b>Kandidat</b>,
+            Hanya transaksi <b>live</b> yang butuh login. <b>Riwayat</b>, <b>Watchlist</b>,
             dan <b>analisa AI</b> di sebelah tetap jalan dari arsip.
           </p>
           <p style="margin:1.2rem 0 0">
@@ -623,12 +623,13 @@
   <!-- ── KANAN: papan — kandidat + tekanan dalam satu tabel ────── -->
   <section id="col-right">
     <div class="colhead">
-      <!-- "Kandidat", bukan "Papan": di layar ini "papan" sudah berarti papan bursa
+      <!-- "Watchlist", bukan "Papan": di layar ini "papan" sudah berarti papan bursa
            (RG/NG/TN) — ada kolom tabel dan grup filter dengan nama itu. Satu kata dua
-           arti di layar yang sama. Istilah IDX yang baku menang; nama karangan yang
-           mengalah. "Kandidat" juga sudah jadi bahasa kodenya sendiri
-           (buildCandidates, /api/candidates, payload AI). -->
-      <span>Kandidat</span>
+           arti di layar yang sama, dan istilah IDX yang baku harus menang.
+           Sebelumnya "Kandidat" — kata itu tetap hidup di kode dan API
+           (buildCandidates, /api/candidates, payload AI) karena di sana tidak bertabrakan
+           dengan apa pun; yang diganti hanya yang dibaca pengguna. -->
+      <span>Watchlist</span>
       <span class="row" style="margin-left:auto" id="p-wins">
         <button data-win="60">1m</button>
         <button data-win="300">5m</button>
@@ -639,7 +640,7 @@
       <div class="pbody">
         <div class="cmeta">
           <p class="hint" id="c-window">—</p>
-          <button id="c-ai" title="Minta model menganalisa kandidat yang tampil di tabel ini">AI</button>
+          <button id="c-ai" title="Minta model menganalisa emiten yang tampil di watchlist ini">AI</button>
           <button id="c-aih" title="Riwayat analisa AI sebelumnya">Riwayat AI</button>
         </div>
         <table id="c-table">
@@ -1330,7 +1331,7 @@ async function loadBook(sym) {
       box.innerHTML = '';
       note.textContent = r.dilanggan
         ? '— menunggu buku pertama dari server'
-        : '— emiten ini belum masuk Kandidat hari ini, jadi belum dilanggan';
+        : '— emiten ini belum masuk Watchlist hari ini, jadi belum dilanggan';
       return;
     }
     const rows = r.rows || [];
@@ -1719,7 +1720,7 @@ function analysisHtml(it, urut) {
 
   return `<div class="ablock">
     ${urut === null ? '' : `<div class="asep"><span>Analisa ${urut} · ${jamOf(it.ts)}</span>
-      <i>${it.count} kandidat · ${Math.round((it.tookMs || 0) / 1000)} dtk</i></div>`}
+      <i>${it.count} emiten · ${Math.round((it.tookMs || 0) / 1000)} dtk</i></div>`}
     ${a.pasar ? `<p class="apasar">${esc(a.pasar)}</p>` : ''}
     ${a.perubahan ? `<p class="achange"><b>Berubah sejak analisa sebelumnya</b><br>${esc(a.perubahan)}</p>` : ''}
     ${picks}
@@ -1975,7 +1976,7 @@ $('h-copy').onclick = async () => {
  *
  * Sebelumnya ini hanya menunjukkan halaman↔app, jadi ia berbunyi "tersambung" dengan
  * titik hijau padahal sesi IPOT sudah mati dan tidak ada satu transaksi pun terekam.
- * Kolom Kandidat tetap terisi (dari arsip) sehingga layarnya tampak sehat — gabungan
+ * Kolom Watchlist tetap terisi (dari arsip) sehingga layarnya tampak sehat — gabungan
  * itu membuat matinya perekaman tidak terlihat sama sekali.
  */
 let pageConnected = false;

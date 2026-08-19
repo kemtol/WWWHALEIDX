@@ -5,7 +5,7 @@ Login QR ke IPOT + running trade live di halaman lokal.
 ## Login duduk di kolom Live Trade, bukan menggerbang aplikasi
 
 Dashboard **selalu** bisa dipakai. Login hanya syarat untuk satu hal: aliran transaksi
-**live**. Riwayat, Kandidat, detail per emiten, dan analisa AI semuanya membaca arsip dari
+**live**. Riwayat, Watchlist, detail per emiten, dan analisa AI semuanya membaca arsip dari
 disk dan jalan penuh tanpa sesi IPOT — terbukti: dengan collector dalam keadaan belum
 login, `/api/candidates` tetap mengembalikan 7 KB, `/api/history` 14 KB, `/api/symbol`
 26 KB.
@@ -144,7 +144,7 @@ src/history.ts  query rentang waktu dari arsip + ringkasan per emiten
 src/symbol.ts   order flow per emiten: delta kumulatif + footprint per harga
 src/orderbook.ts buku order per emiten dari OB2 + riwayat tiap tingkat harga
 src/events.ts   narasi kejadian: tembok ditarik vs jebol vs diserap (OB2 x LT)
-src/market.ts   papan pasar semua emiten + kandidat (kolom Kandidat & payload AI)
+src/market.ts   papan pasar semua emiten + kandidat (kolom Watchlist & payload AI)
 src/prompt.ts   bentuk payload AI + penggabungan template (dipakai tombol AI & CLI)
 src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
 src/aihist.ts   riwayat AI: satu benang per hari (logs/ai/), migrasi bentuk lama
@@ -338,7 +338,16 @@ Yang masih berlaku dari keputusan lama: arah transaksi yang tidak diketahui **ti
 ditebak**. Dulu pewarisan arah dari transaksi sebelumnya terbukti membalik kesimpulan
 pada 28% emiten, dan prinsip itu tidak berubah — hanya sumber datanya yang jadi lebih baik.
 
-## Kandidat (peringkat + tekanan, satu tabel)
+## Watchlist (peringkat + tekanan, satu tabel)
+
+> **Catatan istilah.** Kolom ini dulu berjudul "Kandidat" dan diganti jadi **Watchlist**
+> atas permintaan pengguna. Yang diganti hanya yang dibaca pengguna; di kode dan API
+> katanya tetap `candidates` (`buildCandidates`, `candidatesFor`, `/api/candidates`,
+> payload AI) karena di sana ia tidak bertabrakan dengan apa pun, dan mengganti nama
+> endpoint yang sudah dipakai hanya menambah risiko tanpa menambah kejelasan.
+>
+> Yang **tidak** boleh dipakai untuk kolom ini: "Papan". Di layar yang sama "papan" sudah
+> berarti papan bursa (RG/NG/TN) — ada kolom tabel dan grup filter dengan nama itu.
 
 Kolom kanan menampilkan SATU tabel peringkat yang menggabungkan dua sisi:
 
@@ -371,7 +380,7 @@ Baris = **union** peringkat nilai harian dan nilai jendela: emiten yang ramai pa
 tapi sepi sekarang tetap tampil, dan yang baru memanas sekarang ikut muncul walau
 nilai hariannya kecil. Klik judul kolom untuk mengurutkan; klik kode emiten membuka
 panel detail. Saat kolom filter diciutkan (burger), kolom tengah & kanan **bagi rata
-50/50** sehingga seluruh kolom Kandidat muat; kalau layar lebih sempit, tabel scroll
+50/50** sehingga seluruh kolom Watchlist muat; kalau layar lebih sempit, tabel scroll
 horizontal tanpa memotong angka.
 
 - **Live**: diperbarui tiap 2 detik — harian dari papan pasar di memori
@@ -705,7 +714,7 @@ Membedakannya menuntut OB2 dan LT dibaca berbarengan. Itu isi `src/events.ts`.
 Bukan semua ~686 emiten — langganan OB2 per simbol dan ongkosnya 14–22 KB/menit masing-
 masing. Bukan pula yang sedang diklik: kejadian tidak menunggu kita melihat. Yang
 dilanggan adalah **roster kandidat hari itu** — tiap emiten yang pernah masuk tabel
-Kandidat, ditahan sampai `OB2_MAX = 120` dan disimpan ke `logs/ob2-roster.json` supaya
+Watchlist, ditahan sampai `OB2_MAX = 120` dan disimpan ke `logs/ob2-roster.json` supaya
 restart `whale-app` tidak kehilangan daftarnya.
 
 OB2 mentah **tidak diarsipkan** (555 MB/hari untuk 120 emiten, dibanding 77 MB/hari
@@ -982,6 +991,6 @@ diabaikan diam-diam — scanner tidak boleh berhenti karena notifikasi.
   karena 108 emiten sudah mencakup 87% nilai transaksi pasar; perlu dicek apakah roster
   sehari penuh benar-benar melampauinya.
 - Skor kejujuran buku per emiten (berapa persen tembok besarnya lenyap tanpa
-  bertransaksi) — datanya sudah ada di `events.ts`, kolomnya di tabel Kandidat belum.
+  bertransaksi) — datanya sudah ada di `events.ts`, kolomnya di tabel Watchlist belum.
 - Arti angka di dalam slot `[13]`/`[14]` (kemungkinan nomor order) — butuh arsip sehari
   penuh, jalankan `tools/analyze-lt.ts`.

@@ -6,7 +6,7 @@ import { SymbolAgg, SymbolTracker, type SymbolDetail } from './symbol.js';
 
 /**
  * Papan pasar — agregasi harian untuk SEMUA emiten, diisi inkremental dari feed dan
- * dipanaskan dari arsip saat start. Inilah sumber data tab Kandidat.
+ * dipanaskan dari arsip saat start. Inilah sumber data kolom Watchlist.
  *
  * Kenapa semua emiten dan bukan yang dipantau saja: peringkat "paling layak dilihat"
  * harus dihitung dari seluruh bursa. Agregat per emiten kecil (beberapa level harga
