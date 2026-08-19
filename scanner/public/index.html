@@ -31,6 +31,9 @@
   .stat span{font-size:.7rem;color:var(--muted)}
   .dot{width:9px;height:9px;border-radius:0;display:inline-block;margin-right:.4rem;background:var(--down)}
   .dot.on{background:var(--up)}
+  /* Kuning = app hidup tapi sesi IPOT tidak: tidak ada yang terekam. Dibedakan dari
+     merah (app sendiri terputus) karena tindakan pemulihannya berbeda. */
+  .dot.warn{background:var(--warn)}
   button{background:#21262d;color:var(--text);border:1px solid var(--line);
          border-radius:0;padding:.4rem .85rem;cursor:pointer;font-size:.85rem}
   button:hover{border-color:var(--accent)}
@@ -846,6 +849,7 @@ function setLogged(on) {
     $('qrbox').innerHTML = 'Klik “Tampilkan QR”.<br>QR berlaku 60 detik,<br>jadi siapkan HP dulu.';
   }
   syncLoginPane();
+  syncConn();
 }
 
 $('logout').onclick = () => {
@@ -1885,10 +1889,26 @@ $('h-copy').onclick = async () => {
   } catch (e) { console.error('salin prompt gagal:', e); }
 };
 
+/**
+ * Lampu status: yang penting bagi pengguna adalah sesi IPOT, BUKAN koneksi halaman.
+ *
+ * Sebelumnya ini hanya menunjukkan halaman↔app, jadi ia berbunyi "tersambung" dengan
+ * titik hijau padahal sesi IPOT sudah mati dan tidak ada satu transaksi pun terekam.
+ * Kolom Kandidat tetap terisi (dari arsip) sehingga layarnya tampak sehat — gabungan
+ * itu membuat matinya perekaman tidak terlihat sama sekali.
+ */
+let pageConnected = false;
+function syncConn() {
+  const el = $('conn'), dot = $('dot');
+  if (!pageConnected) { el.textContent = 'app terputus'; dot.classList.remove('on', 'warn'); return; }
+  if (!loggedIn) { el.textContent = 'IPOT belum login'; dot.classList.remove('on'); dot.classList.add('warn'); return; }
+  el.textContent = 'merekam'; dot.classList.add('on'); dot.classList.remove('warn');
+}
+
 function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   ws.onopen = () => {
-    $('conn').textContent = 'tersambung'; $('dot').classList.add('on');
+    pageConnected = true; syncConn();
     // Draft filter dari localStorage diterapkan lagi — refresh tidak boleh
     // mengubah filter yang sedang aktif.
     if (pendingDraft) {
@@ -1897,7 +1917,7 @@ function connect() {
     }
   };
   ws.onclose = () => {
-    $('conn').textContent = 'terputus'; $('dot').classList.remove('on');
+    pageConnected = false; syncConn();
     setTimeout(connect, 2000);
   };
   ws.onmessage = (ev) => {
