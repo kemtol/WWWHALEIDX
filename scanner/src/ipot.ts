@@ -235,6 +235,15 @@ export class IpotClient extends EventEmitter<Events> {
   get connected() { return this.ws !== null && !this.dead; }
 
   async connect(): Promise<boolean> {
+    // Socket lama WAJIB ditutup sebelum membuka yang baru. Sebelum ini `this.ws` cuma
+    // ditimpa, jadi socket lama tetap hidup di sisi IPOT — akun terlihat punya dua sesi
+    // dan server mencabut tokennya 20-50 detik setelah login (`#removeAuthToken`,
+    // "invalid signature"). Itu yang membuat sesi 19 Agu 2026 mati berulang kali.
+    // Listener dilepas dulu supaya penutupan ini tidak memicu 'closed' → reconnect lagi.
+    if (this.ws) {
+      try { this.ws.removeAllListeners(); this.ws.terminate(); } catch { /* sudah mati */ }
+      this.ws = null;
+    }
     this.dead = false;
     this.subscribed = false;
     this.resubscribes = 0;

@@ -118,6 +118,11 @@ ipot.on('closed', (why) => {
 });
 
 async function startSession() {
+  // Batalkan reconnect yang sudah dijadwalkan. `requestQr()` menutup koneksi lalu
+  // menyambung ulang sendiri, sementara penangan 'closed' JUGA menjadwalkan reconnect
+  // 2 detik kemudian — tanpa pembatalan ini keduanya jalan dan kita berakhir dengan dua
+  // koneksi ke IPOT sekaligus. Server membaca itu sebagai dua sesi dan mencabut token.
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   try {
     const authenticated = await ipot.connect();
     reconnectAttempt = 0;
