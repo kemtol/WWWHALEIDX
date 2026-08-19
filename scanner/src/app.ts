@@ -361,7 +361,19 @@ ui.onApi = async (path, q, reqBody) => {
     // halaman: seluruh benang hari itu, urut. Dengan begitu model melihat percakapan
     // yang sama persis dengan yang dibaca di layar, dan halaman tidak bisa
     // menyelundupkan konteks yang tidak pernah terjadi.
-    const msgs: ChatMsg[] = [...threadMessages(thread), { role: 'user', content: message }];
+    // Instruksi format ditempel di giliran TERAKHIR, bukan di awal: konteks di atasnya
+    // memuat prompt analisa yang memerintahkan "balas HANYA JSON" beserta beberapa
+    // jawaban JSON, dan model meneruskan pola itu ke pertanyaan biasa — hasilnya satu
+    // gumpalan JSON mentah di gelembung chat. Instruksi paling belakang yang menang.
+    const msgs: ChatMsg[] = [
+      ...threadMessages(thread),
+      {
+        role: 'user',
+        content: `${message}\n\n---\n(Ini pertanyaan percakapan, BUKAN permintaan analisa baru.`
+          + ` Jawab sebagai teks biasa yang enak dibaca — jangan JSON, jangan skema`
+          + ` picks/dihindari. Boleh pakai **tebal** seperlunya.)`,
+      },
+    ];
     const t0 = Date.now();
     try {
       const { text, usage } = await chatAi(msgs);

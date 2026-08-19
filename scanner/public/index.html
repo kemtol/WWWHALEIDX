@@ -1547,9 +1547,18 @@ async function sendChat({ id, box, input, send, chat }) {
     });
     const r = await res.json();
     if (r.error) throw new Error(r.error);
-    wait.className = 'turn a';
-    // innerHTML aman di sini: `aiText` meng-escape dulu, baru menambah tag tebal.
-    wait.innerHTML = aiText(r.reply);
+    // Jawaban baru lewat penanganan yang SAMA dengan yang dirender dari riwayat —
+    // termasuk jaring pengaman kalau model membalas skema JSON alih-alih teks.
+    const skema = cobaSkema(r.reply);
+    if (skema) {
+      // Kartu analisa bukan gelembung chat: buang kelasnya, ganti isinya.
+      wait.className = '';
+      wait.innerHTML = analysisHtml({ result: skema, ts: Date.now(), count: 0, tookMs: 0 }, null);
+    } else {
+      wait.className = 'turn a';
+      // innerHTML aman di sini: `aiText` meng-escape dulu, baru menambah tag tebal.
+      wait.innerHTML = aiText(r.reply);
+    }
   } catch (e) {
     wait.className = 'turn a aerr';
     wait.textContent = 'gagal: ' + e.message;
@@ -1617,8 +1626,8 @@ function analysisHtml(it, urut) {
   }).join('') : '<p class="hint">Model tidak menemukan setup yang layak. Itu jawaban yang sah.</p>';
 
   return `<div class="ablock">
-    <div class="asep"><span>Analisa ${urut} · ${jamOf(it.ts)}</span>
-      <i>${it.count} kandidat · ${Math.round((it.tookMs || 0) / 1000)} dtk</i></div>
+    ${urut === null ? '' : `<div class="asep"><span>Analisa ${urut} · ${jamOf(it.ts)}</span>
+      <i>${it.count} kandidat · ${Math.round((it.tookMs || 0) / 1000)} dtk</i></div>`}
     ${a.pasar ? `<p class="apasar">${esc(a.pasar)}</p>` : ''}
     ${a.perubahan ? `<p class="achange"><b>Berubah sejak analisa sebelumnya</b><br>${esc(a.perubahan)}</p>` : ''}
     ${picks}
@@ -1638,8 +1647,8 @@ function renderAiInto(box, thread, onSym) {
   let urut = 0;
   box.innerHTML = thread.items.map((it) => {
     if (it.kind === 'analysis') return analysisHtml(it, ++urut);
-    return `<div class="turn ${it.kind === 'user' ? 'u' : 'a'}">${
-      it.kind === 'user' ? esc(it.text) : aiText(it.text)}</div>`;
+    if (it.kind === 'user') return `<div class="turn u">${esc(it.text)}</div>`;
+    return assistantHtml(it);
   }).join('');
 
   // Kode emiten di hasil bisa diklik, sama seperti di tabel mana pun.
@@ -1655,6 +1664,30 @@ function renderAiInto(box, thread, onSym) {
  *  permukaan yang bisa salah. Selebihnya apa adanya lewat `white-space:pre-wrap`. */
 function aiText(s) {
   return esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+}
+
+/** Balasan berbentuk skema analisa, kalau ada. Model kadang tetap menjawab JSON di
+ *  giliran percakapan karena konteks di atasnya penuh instruksi "balas HANYA JSON" —
+ *  sudah dicegah di server, ini jaring pengamannya. Menampilkannya mentah sebagai
+ *  gumpalan satu paragraf jelas lebih buruk daripada merendernya seperti analisa. */
+function cobaSkema(text) {
+  const t = (text || '').trim();
+  if (!t.startsWith('{') || !t.includes('"picks"')) return null;
+  try {
+    const o = JSON.parse(t);
+    if (!Array.isArray(o.picks)) return null;
+    // Lengkapi field yang mungkin tidak ada supaya renderer tidak perlu berjaga-jaga.
+    o.picks = o.picks.map((p) => ({ bukti: [], ...p }));
+    o.dihindari = Array.isArray(o.dihindari) ? o.dihindari : [];
+    return o;
+  } catch { return null; }
+}
+
+/** Satu giliran jawaban model: teks biasa, atau kartu analisa kalau isinya skema. */
+function assistantHtml(it) {
+  const skema = cobaSkema(it.text);
+  if (skema) return analysisHtml({ result: skema, ts: it.ts, count: 0, tookMs: 0 }, null);
+  return `<div class="turn a">${aiText(it.text)}</div>`;
 }
 
 function renderAi(r) {

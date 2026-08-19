@@ -52,6 +52,25 @@ ipot.on('trade', (t) => {
   bus.send({ t: 'lt', d: t.raw });
 });
 
+/** Pengukuran OB2. Sengaja hanya menghitung dan menyimpan CONTOH, bukan mengarsipkan
+ *  semuanya: bentuk datanya belum dipahami dan biayanya belum diketahui — dua alasan
+ *  untuk tidak menulis apa pun ke disk dalam jumlah besar dulu. */
+const ob2 = { n: 0, bytes: 0, mulai: 0, per: new Map<string, number>(), contoh: [] as string[] };
+ipot.on('ob2', (f) => {
+  if (!ob2.mulai) ob2.mulai = Date.now();
+  ob2.n++; ob2.bytes += f.bytes;
+  ob2.per.set(f.code, (ob2.per.get(f.code) ?? 0) + 1);
+  if (ob2.contoh.length < 3) ob2.contoh.push(JSON.stringify(f.raw).slice(0, 900));
+});
+setInterval(() => {
+  if (!ob2.n) return;
+  const dtk = (Date.now() - ob2.mulai) / 1000;
+  const kbMenit = ob2.bytes / 1024 / dtk * 60;
+  log(`OB2: ${ob2.n} pesan · ${(ob2.n / dtk).toFixed(1)}/dtk · ${kbMenit.toFixed(0)} KB/menit`
+    + ` · ${ob2.per.size} emiten · ${[...ob2.per].map(([c, n]) => `${c}:${n}`).join(' ')}`);
+  if (ob2.contoh.length) { log(`OB2 contoh: ${ob2.contoh.shift()}`); }
+}, 30_000);
+
 ipot.on('status', (m) => { log(m); bus.send({ t: 'status', msg: m }); });
 
 ipot.on('qr', (info) => {
@@ -170,6 +189,17 @@ bus.on('command', (msg) => {
   // App membaca arsip langsung dari disk untuk riwayat & panel detail. Flush di sini
   // supaya transaksi beberapa detik terakhir (masih di buffer) ikut terbaca.
   if (msg.cmd === 'flush') { archive.flush(); bus.send({ t: 'flushed', id: msg.id }); }
+  // Pengukuran OB2: dinyalakan lewat perintah, bukan otomatis saat start. Biayanya
+  // belum diketahui, jadi jangan sampai satu restart diam-diam membanjiri koneksi.
+  if (msg.cmd === 'ob2' && Array.isArray(msg.codes)) {
+    const codes = (msg.codes as unknown[]).filter((c): c is string => typeof c === 'string');
+    for (const c of codes) ipot.subscribeOb2(c);
+    log(`OB2 dilangganan: ${codes.join(' ')}`);
+  }
+  if (msg.cmd === 'ob2stop' && Array.isArray(msg.codes)) {
+    for (const c of msg.codes as string[]) ipot.unsubscribeOb2(c);
+    log(`OB2 dihentikan: ${(msg.codes as string[]).join(' ')}`);
+  }
 });
 
 bus.on('clients', (n) => log(`app tersambung: ${n}`));

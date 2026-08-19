@@ -168,6 +168,8 @@ type Events = {
   qr: [QrInfo];
   login: [any];
   trade: [Trade];
+  /** Frame orderbook mentah — belum di-parse, lihat catatan di onMessage. */
+  ob2: [{ code: string; raw: unknown; bytes: number }];
   status: [string];
   unknown: [any];
   closed: [string];       // koneksi putus / dianggap mati — pemanggil yang reconnect
@@ -387,6 +389,11 @@ export class IpotClient extends EventEmitter<Events> {
         this.log.write('DOWN', text);
         return this.emit('status', `frame LT gagal di-parse: ${payload.slice(0, 120)}`);
       }
+      // OB2 diteruskan mentah beserta panjang framenya — pengukuran biaya perlu byte
+      // aslinya, dan bentuk isinya belum kita pahami cukup untuk mem-parse di sini.
+      if (rtype === 'OB2') {
+        return this.emit('ob2', { code: msg?.data?.code ?? '?', raw: payload, bytes: text.length });
+      }
       return this.emit('unknown', msg);
     }
 
@@ -416,6 +423,22 @@ export class IpotClient extends EventEmitter<Events> {
     this.subscribed = true;
     this.lastTradeAt = Date.now();
     this.emit('status', 'subscribe Live Trade dikirim');
+  }
+
+  /** Orderbook satu emiten. Bentuknya dari tapping klien resmi (lihat
+   *  `_DOC/0001_protokol_ipot_lengkap.md`): per simbol WAJIB pakai `code` dan `subsid`,
+   *  kebalikan dari LT global yang justru harus tanpa keduanya. `level:10` = 10 tingkat,
+   *  sama dengan yang diminta klien resmi. */
+  subscribeOb2(code: string) {
+    this.send('cmd', {
+      cmd: 'subscribe', service: 'mi', rtype: 'OB2', code, level: 10, subsid: `wh_${code}`,
+    });
+  }
+
+  unsubscribeOb2(code: string) {
+    this.send('cmd', {
+      cmd: 'unsubscribe', service: 'mi', rtype: 'OB2', code, subsid: `wh_${code}`,
+    });
   }
 
   close() { this.stopWatchdog(); this.dead = true; try { this.ws?.close(); } catch { /* */ } }

@@ -39,7 +39,10 @@ export type Up =
   | { cmd: 'qr' }
   | { cmd: 'subscribe' }
   | { cmd: 'logout' }
-  | { cmd: 'flush'; id: number };
+  | { cmd: 'flush'; id: number }
+  /** Langganan orderbook per emiten — dinyalakan manual, biayanya belum diukur. */
+  | { cmd: 'ob2'; codes: string[] }
+  | { cmd: 'ob2stop'; codes: string[] };
 
 /** Pecah aliran byte menjadi baris. Socket tidak menjamin batas pesan, jadi tanpa
  *  ini pesan bisa terbelah di tengah JSON pada saat feed sedang padat. */
