@@ -13,6 +13,7 @@ import { buildPayload, renderPrompt, flattenTranscript } from './prompt.js';
 import { askAi, chatAi, aiConfigured, type ChatMsg } from './ai.js';
 import { AiHistory } from './aihist.js';
 import { OrderBooks } from './orderbook.js';
+import { EventLog, JEDA_PINDAI_MS } from './events.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
 /**
@@ -68,6 +69,12 @@ const aiHistory = new AiHistory(join(ROOT, 'logs'));
 /** Buku order per emiten. Hanya di memori: orderbook basi seketika, jadi tidak ada
  *  gunanya diarsipkan — yang layak disimpan nanti cuma fitur turunannya. */
 const books = new OrderBooks();
+/** Narasi kejadian orderbook. Butuh transaksi per harga sebagai pembanding: tanpa itu,
+ *  tembok yang ditarik dan tembok yang habis dimakan terlihat sama padahal berlawanan. */
+const events = new EventLog();
+/** Lot yang bertransaksi per emiten per harga sejak pemindaian terakhir. Dikosongkan
+ *  tiap siklus — ini pembanding sesaat, bukan akumulasi. */
+let tradeTally = new Map<string, Map<number, number>>();
 
 const BACKLOG_MAX = 200;
 let backlog: unknown[] = [];
@@ -122,6 +129,12 @@ bus.on('message', async (m) => {
     if (!t) return;
     tracker.feed(t, wibDateStr());
     board.feed(t, wibDateStr());
+    if (books.sejak(t.symbol) !== null) {
+      // Nama sengaja bukan `m` — di dalam handler ini `m` sudah dipakai pesan bus.
+      let tm = tradeTally.get(t.symbol);
+      if (!tm) { tm = new Map(); tradeTally.set(t.symbol, tm); }
+      tm.set(t.price, (tm.get(t.price) ?? 0) + t.lot);
+    }
     const { pass, burst, count } = scanner.evaluate(t);
     if (pass) {
       const msg = { type: 'trade', trade: t, burst, count };
@@ -326,8 +339,13 @@ ui.onApi = async (path, q, reqBody) => {
       // jadi membandingkan keduanya langsung akan melebih-lebihkan. Yang dipakai:
       // temboknya sudah dimakan banyak, diisi ulang berkali-kali, dan MASIH berdiri.
       let absorpsi: { sisi: 'bid' | 'ask'; dimakan: number; isiUlang: number } | null = null;
-      if (st && st.isiUlang >= 3 && st.dimakan >= st.puncak && (sisaJual > 0 || sisaBeli > 0)) {
-        absorpsi = { sisi: sisaJual > 0 ? 'ask' : 'bid', dimakan: st.dimakan, isiUlang: st.isiUlang };
+      // Batas bawah 500 lot menyamakan ambang dengan narasi kejadian: tanpa itu tingkat
+      // receh yang kebetulan diisi ulang tiga kali ikut ditandai "ABSORPSI 120 lot".
+      if (st && st.isiUlang >= 3 && st.dimakan >= st.puncak && st.dimakan >= 500 && (sisaJual > 0 || sisaBeli > 0)) {
+        const sisi = sisaJual > 0 ? 'ask' as const : 'bid' as const;
+        absorpsi = { sisi, dimakan: st.dimakan, isiUlang: st.isiUlang };
+        // Ikut masuk narasi — dicatat sekali per tingkat, bukan tiap kali panel dibuka.
+        events.catatAbsorpsi(code, price, sisi, st.dimakan, st.isiUlang);
       }
       return {
         price, sisaBeli, sisaJual, beliAgr, jualAgr,
@@ -593,6 +611,16 @@ setInterval(() => {
   // emiten yang berhenti bertransaksi terbaca lajunya menurun.
   ui.setState({ candidates: rows });
 }, 2000);
+
+/** Pemindaian kejadian punya iramanya sendiri, jauh lebih lambat dari papan: tembok
+ *  ditarik atau dijebol dalam puluhan detik. Dipindai tiap 2 detik seperti papan, nyaris
+ *  tidak ada kejadian yang tertangkap — terbukti nol selama pasar ramai. Jalan walau tak
+ *  ada tab terbuka; kejadian yang lewat tidak bisa diambil kembali. */
+setInterval(() => {
+  const tally = tradeTally; tradeTally = new Map();
+  events.scan(books, tally);
+  if (ui.clientCount) ui.setState({ events: events.list(60) });
+}, JEDA_PINDAI_MS);
 
 // ---- start ------------------------------------------------------------------
 
