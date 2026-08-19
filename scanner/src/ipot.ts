@@ -355,9 +355,13 @@ export class IpotClient extends EventEmitter<Events> {
     // (hari ini isinya 99,9% LT — persis masalah yang mau dihindari). Payload LT
     // diarsipkan utuh per hari di logs/lt/ lewat archive.ts, jadi tidak ada yang
     // hilang. Yang GAGAL di-parse tetap dicatat di bawah — justru itu yang menarik.
-    const isLt = (msg.event === 'stream' || msg.event === '#publish') &&
-                 (msg?.data?.rtype ?? msg?.rtype) === 'LT';
-    if (!isLt) this.log.write('DOWN', text);
+    // OB2 ikut dikecualikan dengan alasan yang sama: terukur 22 KB/menit PER EMITEN,
+    // jadi roster 100-an emiten menulis ~2 MB/menit ke sini dan memotong berkas 20 MB
+    // itu dalam sepuluh menit. Frame protokol lain — yang justru gunanya berkas ini —
+    // akan hilang tertimbun.
+    const rt = (msg.event === 'stream' || msg.event === '#publish')
+      ? (msg?.data?.rtype ?? msg?.rtype) : null;
+    if (rt !== 'LT' && rt !== 'OB2') this.log.write('DOWN', text);
 
     // JWT sesi — disimpan supaya reconnect tidak perlu scan QR lagi.
     if (msg.event === '#setAuthToken') {

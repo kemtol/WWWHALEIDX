@@ -92,6 +92,10 @@ function pushSession(loggedIn: boolean, phase?: string) {
     patch.loggedIn = loggedIn;
     // Sudah masuk dashboard: QR tidak relevan lagi.
     if (loggedIn) patch.qrSvg = null;
+    // Sesi baru = koneksi baru = seluruh langganan OB2 hangus di sisi server.
+    // Rosternya dipertahankan (itu daftar kandidat hari ini), tapi yang "live"
+    // dikosongkan supaya tick berikutnya melanggan ulang semuanya.
+    if (!loggedIn) ob2.live.clear();
   }
   ui.setState(patch);
 }
@@ -441,14 +445,58 @@ ui.onCommand = (msg) => {
   }
 };
 
+/**
+ * Orderbook mengikuti daftar Kandidat hari itu — bukan menunggu diklik.
+ *
+ * `roster` menumpuk: sekali sebuah emiten masuk Kandidat hari ini, orderbook-nya
+ * dilanggan sampai ganti hari. Melepasnya begitu ia keluar peringkat akan membuat
+ * emiten yang naik-turun di ambang berlangganan-berhenti berkali-kali, dan tiap
+ * langganan baru memaksa server mengirim ULANG seluruh buku (frame INIT, yang jauh
+ * lebih besar dari frame perubahan).
+ *
+ * `live` dipisah dari `roster` karena langganan tidak selamat dari reconnect: begitu
+ * koneksi IPOT putus, semua langganan OB2 hilang di sisi server sementara `roster`
+ * tetap terisi. Tanpa pemisahan ini, setelah reconnect tidak ada satu pun yang
+ * dilanggan ulang dan orderbook diam-diam berhenti mengalir.
+ *
+ * Biaya terukur 19 Agu 2026: 22 KB/menit per emiten. Batas 120 emiten ≈ 2,6 MB/menit,
+ * sekitar 10x seluruh feed LT — sengaja dibatasi, dan kalau batasnya kena itu dicatat,
+ * bukan dipangkas diam-diam.
+ */
+const OB2_MAX = 120;
+const ob2 = { date: '', roster: new Set<string>(), live: new Set<string>(), penuh: false };
+
+function syncOb2(symbols: string[], today: string) {
+  if (ob2.date !== today) {
+    ob2.date = today; ob2.roster.clear(); ob2.live.clear(); ob2.penuh = false;
+  }
+  for (const s of symbols) {
+    if (ob2.roster.size >= OB2_MAX && !ob2.roster.has(s)) {
+      if (!ob2.penuh) { ob2.penuh = true; log(`OB2 mentok di ${OB2_MAX} emiten — sisanya tidak dilanggan`); }
+      continue;
+    }
+    ob2.roster.add(s);
+  }
+  const baru = [...ob2.roster].filter((s) => !ob2.live.has(s));
+  if (!baru.length) return;
+  for (const s of baru) ob2.live.add(s);
+  bus.send({ cmd: 'ob2', codes: baru });
+  log(`OB2 +${baru.length} emiten (total ${ob2.live.size}): ${baru.slice(0, 8).join(' ')}`
+    + (baru.length > 8 ? ' …' : ''));
+}
+
 setInterval(() => {
+  const today = wibDateStr();
+  const opts = { recordedFrom: archive.startTime(today), now: Date.now() };
+  const rows = mergeRows(board, scanner.pressureAll(), BOARD_N, opts);
+  // Roster jalan terus walau tidak ada tab terbuka: orderbook yang terlewat tidak bisa
+  // diambil kembali, sama seperti transaksi.
+  if (lastLoggedIn) syncOb2(rows.map((r) => r.symbol), today);
   if (ui.clientCount === 0) return;
   // Papan: gabungan peringkat nilai harian (papan pasar) dan tekanan jendela —
   // lihat mergeRows. `now` = jam sekarang, bukan transaksi terakhir, supaya
   // emiten yang berhenti bertransaksi terbaca lajunya menurun.
-  const today = wibDateStr();
-  const opts = { recordedFrom: archive.startTime(today), now: Date.now() };
-  ui.setState({ candidates: mergeRows(board, scanner.pressureAll(), BOARD_N, opts) });
+  ui.setState({ candidates: rows });
 }, 2000);
 
 // ---- start ------------------------------------------------------------------
