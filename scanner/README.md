@@ -150,7 +150,7 @@ src/ai.ts       pemanggil DeepSeek + normalisasi balasan model
 src/aihist.ts   riwayat AI: satu benang per hari (logs/ai/), migrasi bentuk lama
 src/notify.ts   notifikasi desktop (notify-send), fire-and-forget
 src/server.ts   http lokal + push WebSocket ke browser + /api/*
-public/index.html  dashboard 3 kolom; panel QR di kolom live, modal detail/AI/riwayat AI
+public/index.html  dashboard 3 kolom; panel QR di kolom live, modal detail + panel AI
 tools/analyze-lt.ts   bedah field feed dari arsip satu hari
 tools/backfill-lt.ts  pemulihan: tarik payload LT lama dari frames.jsonl
 tools/build-payload.ts  payload/prompt analisa AI dari baris perintah, atas arsip
@@ -390,7 +390,8 @@ GET /api/candidates?n=15[&date=YYYY-MM-DD]
 
 Di ujung kanan baris meta (tepat di bawah tombol 15m). Sekali klik: kandidat yang
 **sedang tampil di tabel ini** dikirim ke model bersama template `prompts/scalp.md`,
-dan jawabannya dirender jadi modal — ringkasan pasar, maksimal 5 pick dengan
+dan jawabannya menyusul sebagai pesan terakhir di benang hari ini — ringkasan pasar,
+maksimal 5 pick dengan
 entry/invalidasi/target (plus selisih %-nya terhadap entry), keyakinan 1–5, alasan,
 angka bukti, dan daftar `dihindari`. Kode emiten di hasil bisa diklik langsung ke panel
 detail.
@@ -428,16 +429,33 @@ Terukur: 8.445 → 34.243 karakter untuk hari dengan 2 analisa + 3 tanya.
 **Menunggu 2–3 menit itu normal**, dan itu menuntut UI-nya jujur. Terukur: 103–167 detik
 untuk 19–20 kandidat di `deepseek-v4-pro`. Batasnya 300 detik. Maka:
 
-- Tombolnya menghitung detik (`AI 45s`) — **di tombol**, bukan hanya di dalam modal,
+- Tombolnya menghitung detik (`AI 45s`) — **di tombol**, bukan hanya di dalam panel,
   supaya progresnya terlihat walau panelnya ditutup.
-- Modal **terbuka sendiri** begitu jawabannya datang. Tanpa ini, hasil yang sudah dibayar
-  mendarat di panel tersembunyi dan hilang tanpa jejak — persis yang terjadi 18 Agu 2026:
-  server mencatat `AI: 2 pick · 134 dtk` sementara di layar tidak ada apa-apa.
+- Panelnya **terbuka sendiri** begitu jawabannya datang. Tanpa ini, hasil yang sudah
+  dibayar mendarat di panel tersembunyi dan hilang tanpa jejak — persis yang terjadi
+  18 Agu 2026: server mencatat `AI: 2 pick · 134 dtk` sementara di layar tidak ada apa-apa.
 - Tombolnya **tidak** di-disable saat menunggu: tombol nonaktif tidak mengirim event klik,
   jadi tidak bisa dipakai membuka lagi panel yang tertutup. Permintaan ganda dicegah
   flag `aiBusy`, bukan atribut `disabled`.
-- Hasil terakhir disimpan. Klik lagi setelah panel ditutup → hasil lama ditampilkan,
+- Klik lagi setelah panel ditutup → panel dibuka lagi dari riwayat yang tersimpan,
   **tanpa** memanggil (dan membayar) model lagi.
+
+### Satu panel, bukan dua
+
+Tombol **AI** dan tombol **Riwayat AI** membuka panel yang sama: layar penuh dengan
+sidebar hari di kiri dan percakapan di kanan.
+
+Sebelumnya hasil analisa punya modal sendiri yang lebih sempit dan tanpa sidebar. Itu
+peninggalan dari sebelum riwayat menjadi satu benang per hari — waktu itu hasil analisa
+memang berdiri sendiri, jadi modal terpisah masuk akal. Setelah satu hari = satu
+percakapan, analisa baru cuma **pesan terakhir di benang hari ini**, dan menampilkannya
+di modal terpisah justru memotongnya dari konteks yang membuatnya bisa dibaca — persis
+masalah yang perubahan "satu benang per hari" datang untuk menyelesaikan. Pengguna juga
+kehilangan sidebar untuk melompat ke hari lain.
+
+Selagi model menalar, benang hari ini sudah terbuka dengan placeholder menunggu di
+dasarnya, jadi analisa pagi tetap terbaca sambil menunggu yang siang. Begitu jawaban
+datang, daftar hari di kiri ikut dimuat ulang sehingga hitungan analisanya benar.
 
 `deepseek-v4-flash` cuma ~30% lebih cepat (90 dtk terukur) dan lebih ceroboh — ia sempat
 mengeluarkan harga pecahan seperti 149,9 yang tidak mungkin ada di papan IDX. Karena itu
@@ -491,9 +509,9 @@ Kalau payload ikut di JSONL, membuka daftar berarti mem-parse belasan MB tanpa a
 Retensi 120 hari. Entri bentuk lama (satu entri per klik, `result` + `turns[]`) otomatis
 dinaikkan ke bentuk benang saat dibaca — riwayat yang sudah ada tidak perlu dibuang.
 
-Panel live dan panel riwayat dirender fungsi yang sama (`renderAiInto`), jadi percakapan
-lama tidak pernah tampil beda dari yang baru keluar. Kode emiten di hasil bisa diklik:
-panel riwayat menutup, panel detail order flow terbuka.
+Seluruh percakapan dirender `renderAiInto`, jadi analisa lama tidak pernah tampil beda
+dari yang baru keluar. Kode emiten di hasil bisa diklik: panel riwayat menutup, panel
+detail order flow terbuka.
 
 ```
 GET /api/ai/list           → { entries: [{ id, date, ts, updated, analyses, chats,
@@ -505,8 +523,8 @@ GET /api/ai/entry?id=<tgl> → { id, date, ts, updated, items[], lastPrompt } | 
 ### Tanya-jawab lanjutan
 
 Analisa awal bukan hasil sekali jadi — ia **pesan pertama sebuah percakapan**. Di bawah
-hasilnya ada kotak chat (Enter kirim, Shift+Enter baris baru), tersedia di panel live
-maupun panel riwayat. Pertanyaan lanjutan dijawab dengan membawa konteks penuh, jadi
+hasilnya ada kotak chat (Enter kirim, Shift+Enter baris baru), menempel di dasar panel.
+Pertanyaan lanjutan dijawab dengan membawa konteks penuh, jadi
 "kenapa DSSA cuma 3 bintang?" atau "bandingkan BREN vs ISAT" bisa dijawab tanpa
 mengulang datanya.
 

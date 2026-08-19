@@ -206,12 +206,6 @@
      ini dipakai saat fokus ke satu emiten — bukan sambil memindai. */
   /* Hasil analisa AI. Lebih sempit dari panel emiten — isinya teks yang dibaca
      berurutan, bukan tabel lebar. */
-  #aibox{position:fixed;inset:0;background:rgba(1,4,9,.88);z-index:60;
-         display:none;align-items:center;justify-content:center;padding:1.2rem}
-  #aibox.on{display:flex}
-  .abox{background:var(--bg);border:1px solid var(--line);width:min(760px,100%);
-        max-height:100%;display:flex;flex-direction:column}
-  .abody{flex:1;min-height:0;overflow:auto;padding:.9rem}
   .apasar{margin:0 0 .9rem;padding:.6rem .7rem;background:var(--panel);
           border-left:2px solid var(--accent);font-size:.86rem;line-height:1.5}
   /* Penanda tiap analisa dalam benang sehari — tanpa ini analisa pagi dan siang
@@ -682,23 +676,6 @@
   </section>
 
   </div>
-  </div>
-</div>
-
-<!-- ── Hasil analisa AI atas kandidat yang sedang tampil di papan ─────────── -->
-<div id="aibox">
-  <div class="abox">
-    <div class="dhead">
-      <h3>Analisa AI</h3>
-      <span class="hint" id="a-note"></span>
-      <button id="a-copy" title="Salin prompt yang dipakai, untuk dicoba di AI lain">Salin prompt</button>
-      <button id="a-close" style="margin-left:auto">Tutup</button>
-    </div>
-    <div class="abody" id="a-body"></div>
-    <div class="chatbar" id="a-chat" style="display:none">
-      <textarea id="a-msg" rows="1" placeholder="Tanya lanjutan soal analisa ini… (Enter kirim, Shift+Enter baris baru)"></textarea>
-      <button id="a-send">Kirim</button>
-    </div>
   </div>
 </div>
 
@@ -1612,13 +1589,12 @@ async function loadCandidatesHist() {
 }
 
 /* ── Analisa AI ─────────────────────────────────────────────────────────────
- * Tombol AI mengirim kandidat yang SEDANG tampil ke model, hasilnya dirender di
- * modal. Prompt yang dipakai selalu ikut dikembalikan server, jadi kalau panggilan
- * gagal (saldo habis, model sibuk) masih bisa disalin dan dicoba di chat AI lain. */
+ * Tombol AI mengirim kandidat yang SEDANG tampil ke model, hasilnya masuk sebagai
+ * pesan terakhir di benang hari ini dan dirender di panel riwayat. Prompt yang dipakai
+ * selalu ikut dikembalikan server, jadi kalau panggilan gagal (saldo habis, model
+ * sibuk) masih bisa disalin dan dicoba di chat AI lain. */
 
-let aiPrompt = '';
-/** id analisa yang sedang dibuka di tiap panel — penyambung konteks percakapan. */
-let aiChatId = '';
+/** id benang yang sedang dibuka — penyambung konteks percakapan. */
 let histChatId = '';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g,
@@ -1806,96 +1782,86 @@ function assistantHtml(it) {
   return `<div class="turn a">${aiText(it.text)}</div>`;
 }
 
-function renderAi(r) {
-  const thread = r.thread || r;
-  $('a-note').textContent = aiNote(thread);
-  renderAiInto($('a-body'), thread, closeAi);
-  // Chat baru mungkin setelah analisanya tersimpan (butuh id untuk menyambung konteks).
-  aiChatId = r.id || '';
-  $('a-chat').style.display = aiChatId ? '' : 'none';
-}
-
-const sendAiChat = () => sendChat({
-  id: aiChatId, box: $('a-body'), input: $('a-msg'), send: $('a-send'), chat: $('a-chat'),
-});
-$('a-send').onclick = sendAiChat;
-wireChat($('a-msg'), sendAiChat);
-
-function closeAi() { $('aibox').classList.remove('on'); }
-$('a-close').onclick = closeAi;
-$('aibox').onclick = (e) => { if (e.target === $('aibox')) closeAi(); };
-$('a-copy').onclick = async () => {
-  if (!aiPrompt) return;
-  try {
-    await navigator.clipboard.writeText(aiPrompt);
-    $('a-copy').textContent = '✓ disalin';
-    setTimeout(() => { $('a-copy').textContent = 'Salin prompt'; }, 2000);
-  } catch (e) { console.error('salin prompt gagal:', e); }
-};
-
-/** Hasil terakhir disimpan supaya modal yang sudah ditutup bisa dibuka lagi tanpa
- *  memanggil model (dan membayar) sekali lagi. */
-let aiLast = null;
+/**
+ * Tombol AI membuka panel riwayat yang sama dengan tombol "Riwayat AI".
+ *
+ * Dulu ada modal kedua khusus hasil analisa. Itu peninggalan dari sebelum riwayat
+ * menjadi satu benang per hari: waktu itu hasil analisa memang berdiri sendiri. Setelah
+ * satu hari = satu percakapan, analisa baru cuma pesan TERAKHIR di benang hari ini —
+ * jadi modal terpisah justru memotongnya dari konteks yang membuatnya bisa dibaca, dan
+ * pengguna kehilangan sidebar untuk melompat ke hari lain.
+ */
 let aiBusy = false;
+
+/** Placeholder di dasar percakapan selagi model menalar. Ditaruh di dalam benang, bukan
+ *  menggantikannya — analisa pagi tetap terbaca sambil menunggu yang siang. */
+function tungguDiBenang() {
+  const box = $('h-main');
+  if (!box || document.getElementById('h-wait')) return;
+  const p = document.createElement('p');
+  p.className = 'hint'; p.id = 'h-wait';
+  p.innerHTML = 'Menunggu jawaban model — biasanya 2–3 menit, karena ia menalar dulu '
+    + 'sebelum menjawab.<br>Boleh ditutup: panel ini <b>terbuka sendiri</b> begitu '
+    + 'jawabannya datang.';
+  box.appendChild(p);
+  box.scrollTop = box.scrollHeight;
+}
 
 $('c-ai').onclick = async () => {
   const btn = $('c-ai');
-  // Sedang berjalan → tombolnya membuka lagi panel yang tadi ditutup, bukan diam saja.
-  if (aiBusy) { $('aibox').classList.add('on'); return; }
-  // Sudah ada hasil dan panelnya tertutup → tampilkan lagi, jangan panggil ulang.
-  if (aiLast && !$('aibox').classList.contains('on')) {
-    renderAi(aiLast);
-    $('aibox').classList.add('on');
-    return;
-  }
+  // Sedang berjalan → tombolnya membuka lagi panel yang tadi ditutup, bukan memanggil
+  // model (dan membayar) sekali lagi.
+  if (aiBusy) { await openHist(); tungguDiBenang(); return; }
 
   aiBusy = true;
-  aiLast = null;
   // Sengaja TIDAK di-disable: tombol nonaktif tidak mengirim event klik, jadi cabang
   // "klik saat sibuk → buka lagi panelnya" di atas tidak akan pernah tercapai.
   // Permintaan ganda sudah dicegah `aiBusy`.
-  // Penghitung ada di TOMBOL, bukan cuma di dalam modal: kalau modalnya ditutup,
-  // ini satu-satunya tanda bahwa permintaan masih berjalan. Tanpa itu tombol terlihat
-  // mati dan orang mengkliknya berulang kali tanpa hasil — persis yang terjadi.
+  // Penghitung ada di TOMBOL, bukan cuma di dalam modal: kalau modalnya ditutup, ini
+  // satu-satunya tanda bahwa permintaan masih berjalan. Tanpa itu tombol terlihat mati
+  // dan orang mengkliknya berulang kali tanpa hasil — persis yang pernah terjadi.
   const t0 = Date.now();
   const tick = setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
     btn.textContent = `AI ${s}s`;
-    $('a-note').textContent = `model sedang menganalisa… ${s} dtk`;
+    if ($('aihist').classList.contains('on')) {
+      $('h-note').textContent = `model sedang menganalisa… ${s} dtk`;
+    }
   }, 1000);
   btn.textContent = 'AI 0s';
-  $('a-note').textContent = 'model sedang menganalisa… 0 dtk';
-  $('a-body').innerHTML = '<p class="hint">Menunggu jawaban model — biasanya 2–3 menit, '
-    + 'karena ia menalar dulu sebelum menjawab.<br>Boleh ditutup: panel ini '
-    + '<b>terbuka sendiri</b> begitu jawabannya datang.</p>';
-  // Chat baru masuk akal setelah ada analisa yang bisa dibahas.
-  aiChatId = '';
-  $('a-chat').style.display = 'none';
-  $('aibox').classList.add('on');
+
+  // Benang hari ini dibuka lebih dulu supaya konteksnya sudah terbaca selagi menunggu.
+  await openHist();
+  $('h-note').textContent = 'model sedang menganalisa… 0 dtk';
+  tungguDiBenang();
+
   try {
     const p = new URLSearchParams();
     if (histMode && $('h-date').value) p.set('date', $('h-date').value);
     const r = await (await fetch('/api/ai?' + p)).json();
-    aiPrompt = r.prompt || '';
     if (r.error) {
-      $('a-note').textContent = 'gagal';
-      $('a-body').innerHTML = `<p class="aerr">${esc(r.error)}</p>`
-        + (aiPrompt ? '<p class="hint">Prompt-nya tetap bisa disalin lewat tombol di atas, '
+      // Prompt tetap disimpan supaya tombol Salin prompt tetap berguna walau model gagal
+      // — hasilnya bisa ditempel ke chat AI mana pun.
+      if (r.prompt) histPrompt = r.prompt;
+      $('h-note').textContent = 'gagal';
+      $('h-main').innerHTML = `<p class="aerr">${esc(r.error)}</p>`
+        + (r.prompt ? '<p class="hint">Prompt-nya tetap bisa disalin lewat tombol di atas, '
           + 'lalu ditempel di chat AI mana pun.</p>' : '');
     } else {
-      aiLast = r;
-      renderAi(r);
+      // Muat ulang: daftar hari di kiri ikut memperbarui hitungan analisanya.
+      await openHist(r.id);
     }
   } catch (e) {
-    $('a-note').textContent = 'gagal';
-    $('a-body').innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
+    $('h-note').textContent = 'gagal';
+    $('h-main').innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
   } finally {
     clearInterval(tick);
     aiBusy = false;
     btn.textContent = 'AI';
-    // Jawaban tidak boleh mendarat di panel yang tertutup — itu membuat hasil yang
-    // sudah dibayar hilang tanpa jejak.
-    $('aibox').classList.add('on');
+    document.getElementById('h-wait')?.remove();
+    // Jawaban tidak boleh mendarat di panel yang tertutup — itu membuat hasil yang sudah
+    // dibayar hilang tanpa jejak.
+    $('aihist').classList.add('on');
   }
 };
 
@@ -1945,7 +1911,7 @@ async function openAiEntry(id, el) {
   }
 }
 
-async function openHist() {
+async function openHist(pilihId) {
   $('aihist').classList.add('on');
   $('h-note').textContent = '';
   $('h-list').innerHTML = '<p class="hint" style="padding:.5rem">memuat…</p>';
@@ -1974,9 +1940,12 @@ async function openHist() {
     $('h-list').querySelectorAll('.hitem').forEach((el) => {
       el.onclick = () => openAiEntry(el.dataset.id, el);
     });
-    // Yang terbaru langsung dibuka — itu yang hampir selalu dicari.
-    const first = $('h-list').querySelector('.hitem');
-    if (first) openAiEntry(first.dataset.id, first);
+    // Yang terbaru langsung dibuka — itu yang hampir selalu dicari. Kecuali kalau
+    // pemanggilnya menyebut benang tertentu: analisa atas tanggal arsip tidak selalu
+    // menghasilkan benang paling baru, dan membuka yang salah akan membingungkan.
+    const items = [...$('h-list').querySelectorAll('.hitem')];
+    const target = (pilihId && items.find((x) => x.dataset.id === pilihId)) || items[0];
+    if (target) await openAiEntry(target.dataset.id, target);
   } catch (e) {
     $('h-list').innerHTML = `<p class="aerr" style="padding:.5rem">${esc(e.message)}</p>`;
   }
