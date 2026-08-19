@@ -46,7 +46,9 @@ HAKA/HAKI, cara membaca tiap indikator, dan alasan di balik keputusan rancangan 
 baca itu sebelum mengubah apa pun.
 
 `_DOC/0000_whale_scanner.md` adalah PRD-nya: tujuan, arah, dan apa yang sengaja belum
-dikerjakan.
+dikerjakan. `_DOC/0001_protokol_ipot_lengkap.md` memuat kosakata perintah IPOT hasil
+tapping klien resmi — bentuk langganan OB2/SS2/BAR1 dan query broker summary yang belum
+kita pakai, plus daftar klaim keliru yang beredar di project lain.
 
 ## Riwayat singkat
 
