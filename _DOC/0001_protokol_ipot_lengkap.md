@@ -82,6 +82,35 @@ bisa diturunkan dari feed LT sama sekali.
 
 ---
 
+## 3b. OB2 DICOBA DAN DITOLAK (19 Agu 2026)
+
+Diuji dari koneksi collector sendiri, sesi baru (login 11:01:41), transaksi mengalir
+normal (+95 dalam 6 detik). Lima langganan OB2 dikirim — **kelimanya dibalas
+`{"status":"ERROR","errmsg":"NOSERVICE"}`**, dan tiap penolakan cocok satu-satu dengan
+permintaannya lewat pasangan `rid`↔`cid`. Jadi bukan salah sasaran.
+
+Frame yang kita kirim identik dengan milik klien resmi — field, nilai, `level:10`,
+semuanya sama; hanya urutan kunci dan pola `subsid` yang berbeda, dan keduanya tidak
+berpengaruh:
+
+```
+kita  {"event":"cmd","data":{"cmdid":10,"param":{"cmd":"subscribe","service":"mi","rtype":"OB2","code":"KIJA","level":10,"subsid":"wh_KIJA"}},"cid":18}
+resmi {"event":"cmd","data":{"cmdid":30,"param":{"cmd":"subscribe","service":"mi","code":"TLKM","level":10,"subsid":"7831435b75","rtype":"OB2"}},"cid":32}
+```
+
+Dua kemungkinan tersisa, belum dipisahkan:
+
+1. **Entitlement.** Orderbook 10 tingkat lazim dijual terpisah; akun ini mungkin tidak
+   berhak, sementara running trade termasuk. Kalau ini penyebabnya, tidak ada perubahan
+   kode yang bisa menolong. **Cara termurah memastikannya: lihat apakah aplikasi IPOT
+   sendiri menampilkan orderbook penuh untuk akun itu.**
+2. **OB2 menuntut SS2 lebih dulu.** Di dump resmi, TLKM di-subscribe `SS2` (cid 14)
+   **sebelum** `OB2` (cid 32) — klien resmi membuka satu simbol dengan beberapa
+   langganan sekaligus. Mungkin OB2 hanya sah untuk simbol yang sedang "dibuka".
+   Menguji ini menuntut dukungan SS2, jadi menuntut restart collector.
+
+Sampai salah satunya terbukti, **jangan bangun fitur apa pun di atas OB2.**
+
 ## 4. Yang SALAH di dokumen dan kode SSSAHAM
 
 Diperiksa terhadap arsip kita sendiri; jangan disalin.
