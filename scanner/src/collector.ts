@@ -61,6 +61,9 @@ ipot.on('ob2', (f) => {
   ob2.n++; ob2.bytes += f.bytes;
   ob2.per.set(f.code, (ob2.per.get(f.code) ?? 0) + 1);
   if (ob2.contoh.length < 3) ob2.contoh.push(JSON.stringify(f.raw).slice(0, 900));
+  // Diteruskan mentah ke app — TIDAK diarsipkan. Orderbook cuma bermakna saat ini
+  // juga, dan menyimpannya berarti ratusan MB sehari untuk data yang basi seketika.
+  bus.send({ t: 'ob2', code: f.code, d: typeof f.raw === 'string' ? f.raw : JSON.stringify(f.raw) });
 });
 setInterval(() => {
   if (!ob2.n) return;

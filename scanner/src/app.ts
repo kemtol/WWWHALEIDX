@@ -12,6 +12,7 @@ import { MarketBoard, buildCandidates, mergeRows } from './market.js';
 import { buildPayload, renderPrompt, flattenTranscript } from './prompt.js';
 import { askAi, chatAi, aiConfigured, type ChatMsg } from './ai.js';
 import { AiHistory } from './aihist.js';
+import { OrderBooks } from './orderbook.js';
 import { BusClient, SOCKET_PATH } from './bus.js';
 
 /**
@@ -64,6 +65,9 @@ const tracker = new SymbolTracker();
 const board = new MarketBoard();
 const bus = new BusClient();
 const aiHistory = new AiHistory(join(ROOT, 'logs'));
+/** Buku order per emiten. Hanya di memori: orderbook basi seketika, jadi tidak ada
+ *  gunanya diarsipkan — yang layak disimpan nanti cuma fitur turunannya. */
+const books = new OrderBooks();
 
 const BACKLOG_MAX = 200;
 let backlog: unknown[] = [];
@@ -167,6 +171,7 @@ bus.on('message', async (m) => {
     return;
   }
 
+  if (m.t === 'ob2') { books.feed(m.code, m.d); return; }
   if (m.t === 'status') { ui.setState({ status: m.msg }); return; }
   if (m.t === 'notLogged') { ui.setState({ notLoggedMins: m.mins }); return; }
   if (m.t === 'flushed') { resolveFlush(m.id); return; }
@@ -272,6 +277,15 @@ ui.onApi = async (path, q, reqBody) => {
       recordedFrom,
       detail: tracker.detail(code, { recordedFrom, now: live ? Date.now() : undefined }),
     };
+  }
+
+  // Orderbook satu emiten. `null` kalau belum dilanggan atau bukunya belum terbentuk —
+  // halaman membedakan "belum ada" dari "kosong", karena artinya berbeda.
+  if (path === '/api/orderbook') {
+    const code = (q.get('code') ?? '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{2,6}$/.test(code)) return { error: 'kode emiten tidak sah' };
+    const depth = Math.min(Math.max(Number(q.get('depth')) || 10, 1), 20);
+    return { code, book: books.get(code, depth), dilanggan: ob2.live.has(code) };
   }
 
   if (path === '/api/unwatch') {
@@ -466,6 +480,29 @@ ui.onCommand = (msg) => {
 const OB2_MAX = 120;
 const ob2 = { date: '', roster: new Set<string>(), live: new Set<string>(), penuh: false };
 
+/** Roster disimpan ke disk karena isinya "emiten yang PERNAH masuk Kandidat hari ini" —
+ *  fakta sepanjang hari, bukan keadaan sesaat. Tanpa ini app restart menghapusnya, dan
+ *  emiten yang tadi pagi ramai lalu keluar peringkat tidak akan dilanggan lagi meski
+ *  syaratnya sudah pernah terpenuhi (SSIA, 19 Agu 2026). */
+const OB2_ROSTER_PATH = join(ROOT, 'logs', 'ob2-roster.json');
+
+function loadOb2Roster(today: string) {
+  try {
+    const r = JSON.parse(readFileSync(OB2_ROSTER_PATH, 'utf8'));
+    if (r?.date === today && Array.isArray(r.codes)) {
+      ob2.date = today;
+      for (const c of r.codes) if (typeof c === 'string') ob2.roster.add(c);
+      log(`OB2 roster dipulihkan: ${ob2.roster.size} emiten dari ${today}`);
+    }
+  } catch { /* belum ada atau hari lain — mulai kosong */ }
+}
+
+function saveOb2Roster() {
+  try {
+    writeFileSync(OB2_ROSTER_PATH, JSON.stringify({ date: ob2.date, codes: [...ob2.roster] }));
+  } catch { /* kehilangan roster tidak boleh menjatuhkan apa pun */ }
+}
+
 function syncOb2(symbols: string[], today: string) {
   if (ob2.date !== today) {
     ob2.date = today; ob2.roster.clear(); ob2.live.clear(); ob2.penuh = false;
@@ -481,6 +518,7 @@ function syncOb2(symbols: string[], today: string) {
   if (!baru.length) return;
   for (const s of baru) ob2.live.add(s);
   bus.send({ cmd: 'ob2', codes: baru });
+  saveOb2Roster();
   log(`OB2 +${baru.length} emiten (total ${ob2.live.size}): ${baru.slice(0, 8).join(' ')}`
     + (baru.length > 8 ? ' …' : ''));
 }
@@ -506,6 +544,9 @@ setInterval(() => {
  *  terisi — angka "masuk/lolos" harus menghitung sesi app ini, bukan sejarah arsip. */
 function warmup() {
   const today = wibDateStr();
+  // Roster OB2 dipulihkan lebih dulu supaya tick pertama sudah melanggan emiten yang
+  // tadi pagi masuk Kandidat, bukan hanya yang kebetulan ramai detik ini.
+  loadOb2Roster(today);
   const lines = archive.readDay(today);
   if (!lines.length) return;
   const cutoff = Date.now() - Math.max(scanner.config.pressureWindowSec, 900) * 1000;

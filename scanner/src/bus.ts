@@ -28,6 +28,9 @@ export const SOCKET_PATH =
 export type Down =
   | { t: 'hello'; loggedIn: boolean; subscribed: boolean; marketOpen: boolean }
   | { t: 'lt'; d: string }
+  /** Frame orderbook mentah. Diteruskan apa adanya supaya analitik tetap di app —
+   *  collector sengaja tidak memuat pengetahuan soal isi data. */
+  | { t: 'ob2'; code: string; d: string }
   | { t: 'qr'; qrcode: string; span: number }
   | { t: 'session'; loggedIn: boolean; phase: string }
   | { t: 'status'; msg: string }

@@ -378,6 +378,18 @@
          font-size:.62rem;letter-spacing:.04em}
   .fp .fprice{text-align:right;width:62px;font-weight:600}
   .fp .fsell,.fp .fbuy{width:44%}
+  /* Orderbook: bid dan ask berbagi satu skala lebar, jadi tebal-tipisnya bisa
+     dibandingkan langsung antar-sisi — itu inti bacanya (tembok di mana). */
+  .ob{width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums}
+  .ob td{padding:1px 4px;white-space:nowrap}
+  .ob .obq{width:38%}
+  .ob .obp{width:12%;text-align:center;color:var(--muted)}
+  .ob i{display:block;height:10px}
+  .ob .qb i{background:rgba(63,185,80,.55);margin-left:auto}
+  .ob .qs i{background:rgba(248,81,73,.55)}
+  .ob .pb{color:var(--up)} .ob .ps{color:var(--down)}
+  .obspread{display:flex;gap:1rem;font-size:.74rem;margin:.35rem 0 .5rem;color:var(--muted)}
+  .obspread b{color:var(--text);font-variant-numeric:tabular-nums}
   .fp .fsell div{background:var(--down);height:11px;margin-left:auto}
   .fp .fbuy div{background:var(--up);height:11px}
   .fp tr.at td.fprice{color:var(--accent)}
@@ -699,6 +711,12 @@
         <p class="hint" id="d-press" style="margin:.5rem 0 .9rem"></p>
 
         <div class="kvlist" id="d-analysis" style="margin-bottom:.9rem"></div>
+
+        <!-- Orderbook: NIAT, bukan kenyataan. Sengaja ditaruh setelah footprint-nya
+             tekanan supaya terbaca sebagai pelengkap, bukan sinyal berdiri sendiri —
+             order bisa dibatalkan kapan saja, transaksi tidak. -->
+        <h4>Orderbook <span class="hint" id="d-ob-note" style="font-weight:400"></span></h4>
+        <div id="d-ob" style="margin-bottom:.9rem"></div>
 
         <h4>Footprint — beli vs jual agresif per harga</h4>
         <table class="fp">
@@ -1309,6 +1327,46 @@ function renderDetail(d, date, live, recordedFrom) {
 }
 
 
+/** Orderbook di panel detail. Bid dan ask memakai SATU skala lebar supaya tebal-tipis
+ *  bisa dibandingkan antar-sisi — di situlah tembok terlihat. */
+async function loadBook(sym) {
+  const box = $('d-ob'), note = $('d-ob-note');
+  if (!sym) { box.innerHTML = ''; note.textContent = '— hanya untuk hari berjalan'; return; }
+  try {
+    const r = await (await fetch('/api/orderbook?code=' + encodeURIComponent(sym))).json();
+    if (r.error) throw new Error(r.error);
+    if (!r.book) {
+      box.innerHTML = '';
+      note.textContent = r.dilanggan
+        ? '— menunggu buku pertama dari server'
+        : '— emiten ini belum masuk Kandidat hari ini, jadi belum dilanggan';
+      return;
+    }
+    const b = r.book;
+    note.textContent = `· ${b.updates} pembaruan`;
+    const maks = Math.max(1, ...b.bid.map((x) => x.lot), ...b.ask.map((x) => x.lot));
+    const baris = [];
+    for (let i = 0; i < Math.max(b.bid.length, b.ask.length); i++) {
+      const d = b.bid[i], s = b.ask[i];
+      baris.push(`<tr>
+        <td class="obq qb">${d ? `<i style="width:${(d.lot / maks * 100).toFixed(1)}%"></i>` : ''}</td>
+        <td class="obq" style="width:10%;text-align:right">${d ? nf.format(d.lot) : ''}</td>
+        <td class="obp pb">${d ? nf.format(d.price) : ''}</td>
+        <td class="obp ps">${s ? nf.format(s.price) : ''}</td>
+        <td class="obq" style="width:10%">${s ? nf.format(s.lot) : ''}</td>
+        <td class="obq qs">${s ? `<i style="width:${(s.lot / maks * 100).toFixed(1)}%"></i>` : ''}</td>
+      </tr>`);
+    }
+    box.innerHTML =
+      `<div class="obspread">
+         <span>spread <b>${b.spread ?? '—'}</b></span>
+         <span>${b.spreadPct !== null ? `<b>${b.spreadPct.toFixed(2)}%</b> dari bid` : ''}</span>
+       </div><table class="ob">${baris.join('')}</table>`;
+  } catch (e) {
+    box.innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
+  }
+}
+
 async function loadDetail(reload) {
   if (!detailSym) return;
   const p = new URLSearchParams({ code: detailSym });
@@ -1322,6 +1380,9 @@ async function loadDetail(reload) {
     // Melihat "riwayat" hari ini tetap perlu diperbarui; hari lampau tidak.
     if (r.live && !detailTimer) detailTimer = setInterval(() => loadDetail(false), 2000);
     if (!r.live && detailTimer) { clearInterval(detailTimer); detailTimer = null; }
+    // Orderbook hanya bermakna untuk hari berjalan — ia keadaan sekarang, bukan
+    // rekaman. Di tanggal lampau panelnya disembunyikan, bukan diisi angka basi.
+    loadBook(r.live ? detailSym : null);
   } catch (e) {
     $('d-note').textContent = 'gagal memuat: ' + e.message;
   }
