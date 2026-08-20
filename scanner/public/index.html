@@ -1820,76 +1820,91 @@ function assistantHtml(it) {
  * pengguna kehilangan sidebar untuk melompat ke hari lain.
  */
 let aiBusy = false;
+/** Kapan analisa yang sedang berjalan dimulai, dan benang tanggal mana yang ditujunya. */
+let aiT0 = 0;
+let aiTarget = '';
 
-/** Placeholder di dasar percakapan selagi model menalar. Ditaruh di dalam benang, bukan
- *  menggantikannya — analisa pagi tetap terbaca sambil menunggu yang siang. */
-function tungguDiBenang() {
+const tglWib = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+const aiDetik = () => Math.round((Date.now() - aiT0) / 1000);
+
+/**
+ * Gelembung "sedang menganalisa" di DASAR percakapan — bentuknya sama persis dengan
+ * gelembung tunggu pada tanya-jawab lanjutan (`.turn a pending`).
+ *
+ * Menekan tombol AI TIDAK lagi melemparkan pengguna ke panel percakapan. Itu
+ * membingungkan: layar berganti total padahal belum ada apa pun untuk dibaca, dan
+ * papan yang sedang diamati hilang. Progresnya cukup di tombol; panelnya baru terbuka
+ * saat jawabannya benar-benar ada. Kalau pengguna membuka panelnya sendiri selagi
+ * model menalar, barulah gelembung ini muncul — di bawah percakapan yang sudah ada,
+ * bukan menggantikannya.
+ */
+function gelembungTunggu() {
+  if (!aiBusy) return;
   const box = $('h-main');
-  if (!box || document.getElementById('h-wait')) return;
-  const p = document.createElement('p');
-  p.className = 'hint'; p.id = 'h-wait';
-  p.innerHTML = 'Menunggu jawaban model — biasanya 2–3 menit, karena ia menalar dulu '
-    + 'sebelum menjawab.<br>Boleh ditutup: panel ini <b>terbuka sendiri</b> begitu '
-    + 'jawabannya datang.';
-  box.appendChild(p);
-  box.scrollTop = box.scrollHeight;
+  if (!box) return;
+  let el = document.getElementById('h-wait');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'h-wait';
+    el.className = 'turn a pending';
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+  }
+  el.textContent = `model sedang menganalisa… ${aiDetik()} dtk`;
 }
 
 $('c-ai').onclick = async () => {
   const btn = $('c-ai');
-  // Sedang berjalan → tombolnya membuka lagi panel yang tadi ditutup, bukan memanggil
-  // model (dan membayar) sekali lagi.
-  if (aiBusy) { await openHist(); tungguDiBenang(); return; }
+  // Sedang berjalan → tombolnya membuka panel dan menunjukkan gelembung tunggunya,
+  // bukan memanggil (dan membayar) model sekali lagi.
+  if (aiBusy) { await openHist(); return; }
 
   aiBusy = true;
+  aiT0 = Date.now();
+  aiTarget = (histMode && $('h-date').value) || tglWib();
   // Sengaja TIDAK di-disable: tombol nonaktif tidak mengirim event klik, jadi cabang
-  // "klik saat sibuk → buka lagi panelnya" di atas tidak akan pernah tercapai.
-  // Permintaan ganda sudah dicegah `aiBusy`.
-  // Penghitung ada di TOMBOL, bukan cuma di dalam modal: kalau modalnya ditutup, ini
-  // satu-satunya tanda bahwa permintaan masih berjalan. Tanpa itu tombol terlihat mati
-  // dan orang mengkliknya berulang kali tanpa hasil — persis yang pernah terjadi.
-  const t0 = Date.now();
+  // "klik saat sibuk → buka panelnya" di atas tidak akan pernah tercapai. Permintaan
+  // ganda sudah dicegah `aiBusy`.
+  // Penghitung ada di TOMBOL: selama menunggu, inilah satu-satunya tanda bahwa
+  // permintaan berjalan — dan sekarang jadi satu-satunya perubahan di layar, karena
+  // panelnya tidak dibuka paksa.
   const tick = setInterval(() => {
-    const s = Math.round((Date.now() - t0) / 1000);
-    btn.textContent = `AI ${s}s`;
-    if ($('aihist').classList.contains('on')) {
-      $('h-note').textContent = `model sedang menganalisa… ${s} dtk`;
-    }
+    btn.textContent = `AI ${aiDetik()}s`;
+    if ($('aihist').classList.contains('on')) gelembungTunggu();
   }, 1000);
   btn.textContent = 'AI 0s';
-
-  // Benang hari ini dibuka lebih dulu supaya konteksnya sudah terbaca selagi menunggu.
-  await openHist();
-  $('h-note').textContent = 'model sedang menganalisa… 0 dtk';
-  tungguDiBenang();
 
   try {
     const p = new URLSearchParams();
     if (histMode && $('h-date').value) p.set('date', $('h-date').value);
     const r = await (await fetch('/api/ai?' + p)).json();
+    clearInterval(tick);
+    aiBusy = false;
+    document.getElementById('h-wait')?.remove();
     if (r.error) {
-      // Prompt tetap disimpan supaya tombol Salin prompt tetap berguna walau model gagal
-      // — hasilnya bisa ditempel ke chat AI mana pun.
+      // Prompt tetap disimpan supaya tombol Salin prompt tetap berguna walau model gagal.
       if (r.prompt) histPrompt = r.prompt;
+      await openHist(aiTarget);
       $('h-note').textContent = 'gagal';
       $('h-main').innerHTML = `<p class="aerr">${esc(r.error)}</p>`
         + (r.prompt ? '<p class="hint">Prompt-nya tetap bisa disalin lewat tombol di atas, '
           + 'lalu ditempel di chat AI mana pun.</p>' : '');
     } else {
-      // Muat ulang: daftar hari di kiri ikut memperbarui hitungan analisanya.
-      await openHist(r.id);
+      // Jawaban tidak boleh mendarat di panel yang tertutup — itu membuat hasil yang
+      // sudah dibayar hilang tanpa jejak. Panel baru dibuka DI SINI, saat isinya ada.
+      await openHist(r.id || aiTarget);
     }
   } catch (e) {
+    clearInterval(tick);
+    aiBusy = false;
+    document.getElementById('h-wait')?.remove();
+    await openHist(aiTarget);
     $('h-note').textContent = 'gagal';
     $('h-main').innerHTML = `<p class="aerr">${esc(e.message)}</p>`;
   } finally {
     clearInterval(tick);
     aiBusy = false;
     btn.textContent = 'AI';
-    document.getElementById('h-wait')?.remove();
-    // Jawaban tidak boleh mendarat di panel yang tertutup — itu membuat hasil yang sudah
-    // dibayar hilang tanpa jejak.
-    $('aihist').classList.add('on');
   }
 };
 
@@ -1932,6 +1947,9 @@ async function openAiEntry(id, el) {
     renderAiInto($('h-main'), t, closeHist);
     histChatId = id;
     $('h-chat').style.display = '';
+    // Kalau model sedang menalar untuk benang INI, gelembung tunggunya menyusul di
+    // dasar percakapan — bukan menggantikan isinya.
+    if (aiBusy && id === aiTarget) gelembungTunggu();
     // Percakapan dibuka di bawah — bagian terbaru yang dicari, bukan analisa pagi.
     $('h-main').scrollTop = $('h-main').scrollHeight;
   } catch (e) {
@@ -1951,6 +1969,7 @@ async function openHist(pilihId) {
     const list = r.entries || [];
     if (!list.length) {
       $('h-list').innerHTML = '<p class="hint" style="padding:.5rem">Belum ada analisa.</p>';
+      if (aiBusy) { $('h-main').innerHTML = ''; gelembungTunggu(); return; }
       $('h-main').innerHTML = '<p class="hint">Tekan tombol <b>AI</b> di papan untuk '
         + 'membuat analisa pertama. Hasilnya tersimpan di sini.</p>';
       return;
@@ -1974,6 +1993,14 @@ async function openHist(pilihId) {
     const items = [...$('h-list').querySelectorAll('.hitem')];
     const target = (pilihId && items.find((x) => x.dataset.id === pilihId)) || items[0];
     if (target) await openAiEntry(target.dataset.id, target);
+    // Analisa PERTAMA hari itu: benangnya belum ada di daftar, jadi tidak ada baris yang
+    // bisa dibuka. Yang ditampilkan cukup gelembung tunggunya sendiri — memaksa membuka
+    // benang kemarin di sini justru menyesatkan.
+    if (aiBusy && !items.some((x) => x.dataset.id === aiTarget)) {
+      $('h-main').innerHTML = '';
+      $('h-note').textContent = `${aiTarget} · analisa pertama hari ini`;
+      gelembungTunggu();
+    }
   } catch (e) {
     $('h-list').innerHTML = `<p class="aerr" style="padding:.5rem">${esc(e.message)}</p>`;
   }

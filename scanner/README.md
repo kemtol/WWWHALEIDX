@@ -489,9 +489,23 @@ di modal terpisah justru memotongnya dari konteks yang membuatnya bisa dibaca �
 masalah yang perubahan "satu benang per hari" datang untuk menyelesaikan. Pengguna juga
 kehilangan sidebar untuk melompat ke hari lain.
 
-Selagi model menalar, benang hari ini sudah terbuka dengan placeholder menunggu di
-dasarnya, jadi analisa pagi tetap terbaca sambil menunggu yang siang. Begitu jawaban
-datang, daftar hari di kiri ikut dimuat ulang sehingga hitungan analisanya benar.
+**Menekan tombol AI tidak memindahkan layar.** Percobaan pertama membuka panel saat
+tombol ditekan, dan itu membingungkan: layar berganti total padahal belum ada apa pun
+untuk dibaca, dan papan yang sedang diamati hilang. Sekarang yang berubah cuma tombolnya
+(`AI 45s`); panelnya baru terbuka ketika jawabannya benar-benar ada.
+
+Kalau pengguna membuka panelnya sendiri selagi model menalar, barulah muncul **gelembung
+tunggu di dasar percakapan** — bentuknya sama persis dengan gelembung tunggu pada
+tanya-jawab lanjutan (`.turn a pending`), di bawah analisa yang sudah ada dan bukan
+menggantikannya. Menekan tombol AI lagi saat itu membuka panel, bukan memanggil model
+kedua kalinya.
+
+Analisa pertama hari itu adalah kekecualian: benangnya belum ada di daftar, jadi yang
+ditampilkan cukup gelembung tunggunya sendiri — memaksa membuka benang kemarin di situ
+justru menyesatkan.
+
+Begitu jawaban datang, daftar hari di kiri ikut dimuat ulang sehingga hitungan
+analisanya benar.
 
 `deepseek-v4-flash` cuma ~30% lebih cepat (90 dtk terukur) dan lebih ceroboh — ia sempat
 mengeluarkan harga pecahan seperti 149,9 yang tidak mungkin ada di papan IDX. Karena itu
