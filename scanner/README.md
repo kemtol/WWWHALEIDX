@@ -367,6 +367,26 @@ Ruangnya sebagian didapat tanpa mengurangi informasi:
 Kalau nanti ada kolom baru atau isi yang lebih panjang, ulangi pengukurannya —
 menambah kolom tanpa memperbarui `<colgroup>` akan menyempitkan kolom lain diam-diam.
 
+Tangga orderbook di panel detail (`.ob`) juga terkena aturan `table-layout:fixed` yang
+sama, tapi tanpa `<colgroup>`: lebar kolomnya ditentukan `width` pada `<th>` baris
+pertama, dan `width` pada `td` **diabaikan**. Kolom harga dipatok 86px karena selnya
+memuat harga **beserta** penanda POC/VAH/VAL; dengan 52px yang lama, barisnya terbaca
+`3.130…` dan penandanya hilang justru di baris yang paling penting.
+
+> **Jebakan saat menyunting `public/index.html`.** Sebagian besar markup panel detail
+> berada di dalam **template literal JavaScript**. Menyisipkan komentar HTML yang memuat
+> backtick — misalnya menulis `` `table-layout:fixed` `` di dalamnya — akan mengakhiri
+> template itu dan mematikan seluruh skrip halaman. Gejalanya menyesatkan: halaman tetap
+> tampil, tapi papan berbunyi "Menunggu data…" dan tidak ada satu pun fungsi yang
+> terdefinisi. Selalu jalankan pemeriksaan sintaks setelah menyunting, jangan hanya
+> melihat layarnya:
+>
+> ```bash
+> python3 -c "import re;s=open('public/index.html').read();\
+> open('/tmp/app.js','w').write(re.search(r'<script[^>]*>(.*)</script>',s,re.S).group(1))"
+> node --check /tmp/app.js
+> ```
+
 > **Catatan istilah.** Kolom ini dulu berjudul "Kandidat" dan diganti jadi **Watchlist**
 > atas permintaan pengguna. Yang diganti hanya yang dibaca pengguna; di kode dan API
 > katanya tetap `candidates` (`buildCandidates`, `candidatesFor`, `/api/candidates`,

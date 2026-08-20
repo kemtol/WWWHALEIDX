@@ -306,8 +306,11 @@
   /* Tiga kolom: keadaan · grafik · analisis. Gap 1px berlatar --line dipakai sebagai
      garis pemisah, sama seperti grid utama halaman. Tiap kolom scroll sendiri supaya
      footprint yang panjang tidak mendorong grafik keluar layar. */
+  /* Kolom kiri 150px, bukan 240px. Isi terlebarnya cuma ~100px pada kasus terburuk
+     (High/Low dua harga lima digit, atau laju tape "12.5/dtk · 3.4×") ditambah padding
+     26px — sisanya ruang kosong yang lebih berguna dipakai grafik di tengah. */
   .dbody{flex:1;min-height:0;display:grid;gap:1px;background:var(--line);
-         grid-template-columns:240px minmax(0,1fr) 420px}
+         grid-template-columns:150px minmax(0,1fr) 420px}
   .dcol{background:var(--bg);overflow:auto;padding:.8rem;min-width:0}
   @media (max-width:1100px){
     .dbody{grid-template-columns:1fr;overflow:auto}
@@ -409,7 +412,9 @@
   .ob .bar-s i{background:var(--down)}
   .ob .bar-sb i{background:rgba(63,185,80,.4);margin-left:auto}
   .ob .bar-ss i{background:rgba(248,81,73,.4)}
-  .ob .hrg{text-align:center;font-weight:600;width:52px}
+  /* Lebarnya dipasang di `th` (lihat HTML-nya), bukan di sini — `table-layout:fixed`
+     mengabaikan `width` pada td. */
+  .ob .hrg{text-align:center;font-weight:600}
   .ob tr.poc .hrg{color:var(--warn)}
   .ob tr.last .hrg{background:var(--panel);outline:1px solid var(--accent)}
   .ob .tag{font-size:.55rem;letter-spacing:.04em;color:var(--muted);padding-left:4px}
@@ -1439,7 +1444,14 @@ async function loadBook(sym) {
          <thead><tr>
            <th style="text-align:right">sisa jual</th>
            <th colspan="2" style="text-align:right">jual agresif</th>
-           <th>harga</th>
+           <!-- JANGAN pakai backtick di komentar ini: seluruh blok berada di dalam
+                template literal, dan backtick akan mengakhirinya.
+                Lebar dipasang di TH, bukan di td, karena tabel ini table-layout:fixed
+                (dari aturan tabel global) sehingga lebar kolom diambil dari baris
+                pertama dan width pada td diabaikan. Sel ini memuat harga BESERTA
+                penanda POC/VAH/VAL - 52px yang lama cuma cukup untuk harganya, dan
+                penandanya hilang justru di baris yang paling penting. -->
+           <th style="width:86px">harga</th>
            <th colspan="2">beli agresif</th>
            <th>sisa beli</th>
          </tr></thead>
