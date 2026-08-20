@@ -470,9 +470,22 @@ untuk 19–20 kandidat di `deepseek-v4-pro`. Batasnya 300 detik. Maka:
 - Panelnya **terbuka sendiri** begitu jawabannya datang. Tanpa ini, hasil yang sudah
   dibayar mendarat di panel tersembunyi dan hilang tanpa jejak — persis yang terjadi
   18 Agu 2026: server mencatat `AI: 2 pick · 134 dtk` sementara di layar tidak ada apa-apa.
-- Tombolnya **tidak** di-disable saat menunggu: tombol nonaktif tidak mengirim event klik,
-  jadi tidak bisa dipakai membuka lagi panel yang tertutup. Permintaan ganda dicegah
-  flag `aiBusy`, bukan atribut `disabled`.
+- Tombolnya memakai **`aria-disabled`, bukan `disabled`**. Bedanya menentukan: tombol
+  yang benar-benar `disabled` tidak mengirim event klik sama sekali, jadi ia tidak bisa
+  memberi tahu apa pun saat ditekan — pengguna menekan dan tidak terjadi apa-apa, persis
+  keluhan yang mau dihilangkan. Dengan `aria-disabled` tombolnya tampak nonaktif (redup,
+  `cursor:progress`) dan semantiknya nonaktif bagi pembaca layar, tapi kliknya masih
+  tertangkap untuk memunculkan pemberitahuan.
+- Permintaan ganda dicegah flag `aiBusy`, **bukan** oleh atribut apa pun di tombol.
+  Terukur: menekan AI berkali-kali selama satu analisa berjalan tetap menghasilkan
+  tepat satu panggilan `/api/ai`.
+- Menekan AI saat model masih menalar memunculkan **pemberitahuan kecil di tengah**:
+  sudah berapa detik, bahwa permintaan baru tidak dikirim, dan bahwa panelnya terbuka
+  sendiri nanti. Ada tombol "Lihat percakapan" kalau memang mau membacanya sekarang.
+  Sengaja bukan panel penuh — isinya satu kalimat, dan membuka layar penuh untuk itu
+  mengulang persis masalah yang baru saja diperbaiki. Pemberitahuannya menutup sendiri
+  begitu jawabannya datang, karena isinya sudah tidak benar dan ia akan menutupi hasil
+  yang baru terbuka.
 - Klik lagi setelah panel ditutup → panel dibuka lagi dari riwayat yang tersimpan,
   **tanpa** memanggil (dan membayar) model lagi.
 

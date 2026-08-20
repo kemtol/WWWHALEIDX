@@ -173,6 +173,23 @@
   /* min-width: saat menghitung detik labelnya berubah tiap detik — tanpa lebar tetap
      tombolnya berkedut dan menggeser hint di kirinya. */
   #c-ai{padding:.05rem .75rem;letter-spacing:.03em;min-width:3.6rem;text-align:center}
+  /* `aria-disabled`, BUKAN `disabled`: tombol yang benar-benar disabled tidak mengirim
+     event klik sama sekali, jadi ia tidak bisa memberi tahu apa pun saat ditekan.
+     Yang dicegah — permintaan kedua ke model — sudah dijaga flag `aiBusy`. */
+  #c-ai[aria-disabled="true"]{opacity:.6;cursor:progress}
+  #c-ai[aria-disabled="true"]:hover{border-color:var(--line);color:inherit}
+  /* Pemberitahuan "masih menalar": kecil dan di tengah, bukan panel penuh — isinya satu
+     kalimat, dan membuka layar penuh untuk itu justru mengulang masalah yang baru saja
+     diperbaiki (layar berganti padahal belum ada yang bisa dibaca). */
+  #aiwait{position:fixed;inset:0;background:rgba(1,4,9,.7);z-index:80;
+          display:none;align-items:center;justify-content:center;padding:1rem}
+  #aiwait.on{display:flex}
+  #aiwait .wbox{background:var(--bg);border:1px solid var(--line);width:min(420px,100%);
+                padding:1.1rem 1.2rem}
+  #aiwait h3{margin:0 0 .5rem;font-size:.95rem}
+  #aiwait p{margin:0 0 .5rem;font-size:.82rem;line-height:1.6;color:var(--muted)}
+  #aiwait .wrow{display:flex;gap:.5rem;margin-top:.9rem}
+  #aiwait .wrow button{flex:0 0 auto}
   #c-aih{padding:.05rem .75rem}
   /* Riwayat AI: sidebar daftar + panel hasil, pola yang sudah dikenal dari chat AI. */
   #aihist{position:fixed;inset:0;background:rgba(1,4,9,.9);z-index:70;
@@ -699,6 +716,21 @@
   </section>
 
   </div>
+  </div>
+</div>
+
+<!-- ── Pemberitahuan saat tombol AI ditekan sementara model masih menalar ──── -->
+<div id="aiwait">
+  <div class="wbox">
+    <h3>Model masih menalar</h3>
+    <p id="w-lama"></p>
+    <p>Permintaan baru <b>tidak dikirim</b> — yang sedang berjalan tetap satu.
+       Panel percakapan <b>terbuka sendiri</b> begitu jawabannya datang, jadi tidak perlu
+       ditunggui.</p>
+    <div class="wrow">
+      <button id="w-ok">Mengerti</button>
+      <button id="w-buka">Lihat percakapan</button>
+    </div>
   </div>
 </div>
 
@@ -1853,11 +1885,24 @@ function gelembungTunggu() {
   el.textContent = `model sedang menganalisa… ${aiDetik()} dtk`;
 }
 
+/** Pemberitahuan "masih menalar". Angkanya ikut hidup selama dialognya terbuka. */
+function bukaPemberitahuan() {
+  $('w-lama').textContent = `Sudah ${aiDetik()} detik. Biasanya 2–3 menit, karena model `
+    + 'menalar dulu sebelum menjawab.';
+  $('aiwait').classList.add('on');
+}
+function tutupPemberitahuan() { $('aiwait').classList.remove('on'); }
+$('w-ok').onclick = tutupPemberitahuan;
+$('w-buka').onclick = async () => { tutupPemberitahuan(); await openHist(); };
+$('aiwait').onclick = (e) => { if (e.target === $('aiwait')) tutupPemberitahuan(); };
+
 $('c-ai').onclick = async () => {
   const btn = $('c-ai');
-  // Sedang berjalan → tombolnya membuka panel dan menunjukkan gelembung tunggunya,
-  // bukan memanggil (dan membayar) model sekali lagi.
-  if (aiBusy) { await openHist(); return; }
+  // Sedang berjalan → beri tahu, jangan diam dan jangan pula memanggil model lagi.
+  // Membuka panel diam-diam di sini juga keliru: pengguna menekan "AI" untuk MEMINTA
+  // analisa, bukan untuk membaca yang lama, jadi yang perlu dijawab adalah "kenapa
+  // tidak terjadi apa-apa?".
+  if (aiBusy) { bukaPemberitahuan(); return; }
 
   aiBusy = true;
   aiT0 = Date.now();
@@ -1868,9 +1913,11 @@ $('c-ai').onclick = async () => {
   // Penghitung ada di TOMBOL: selama menunggu, inilah satu-satunya tanda bahwa
   // permintaan berjalan — dan sekarang jadi satu-satunya perubahan di layar, karena
   // panelnya tidak dibuka paksa.
+  btn.setAttribute('aria-disabled', 'true');
   const tick = setInterval(() => {
     btn.textContent = `AI ${aiDetik()}s`;
     if ($('aihist').classList.contains('on')) gelembungTunggu();
+    if ($('aiwait').classList.contains('on')) bukaPemberitahuan();
   }, 1000);
   btn.textContent = 'AI 0s';
 
@@ -1905,6 +1952,10 @@ $('c-ai').onclick = async () => {
     clearInterval(tick);
     aiBusy = false;
     btn.textContent = 'AI';
+    btn.removeAttribute('aria-disabled');
+    // Pemberitahuan ikut ditutup: isinya sudah tidak benar begitu jawabannya ada, dan
+    // membiarkannya menutupi panel yang baru terbuka justru menyembunyikan hasilnya.
+    tutupPemberitahuan();
   }
 };
 
