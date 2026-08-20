@@ -43,11 +43,15 @@
 
   /* tiga kolom: filter | livetrade | tekanan.
      gap 1px berlatar --line dipakai sebagai garis pemisah, jadi tidak perlu border. */
-  .grid3{display:grid;grid-template-columns:290px minmax(0,1fr) 560px;
+  .grid3{display:grid;grid-template-columns:290px minmax(0,1fr) 791px;
          gap:1px;background:var(--line);transition:grid-template-columns .15s ease}
-  /* filter diciutkan jadi rail sempit: tengah & kanan bagi rata (50/50) — dengan
+  /* filter diciutkan jadi rail sempit. Kanan diberi porsi LEBIH BESAR, bukan 50/50:
+     Live Trade cuma 10 kolom yang isinya pendek, sementara Watchlist punya 14 kolom
+     berisi angka panjang (nilai rupiah, zσ bertanda, verdict) yang kalau sempit
+     terpotong jadi "−17.5…" — angka terpotong lebih buruk daripada tabel transaksi
+     yang sedikit lebih rapat, karena angkanya yang justru jadi dasar keputusan.
      kolom Raw sudah tiada, keduanya muat berdampingan tanpa tombol Lebar. */
-  body.fcol .grid3{grid-template-columns:34px 1fr 1fr}
+  body.fcol .grid3{grid-template-columns:34px minmax(0,1fr) minmax(0,1.12fr)}
   body.fcol #col-filter .colbody,
   body.fcol #col-filter .chtitle{display:none}
   body.fcol #col-filter .colhead{padding:0;justify-content:center}
@@ -428,12 +432,21 @@
   .winlab{font-weight:400;color:var(--muted);font-size:.62rem}
   th.sort{cursor:pointer;user-select:none}
   th.sort:hover{color:var(--accent)}
+  /* 760px = lebar alami tabel ini dengan isi TERPANJANG yang mungkin (AMMN, −17,6 M,
+     134,9 M, −10.25, imbang, 2.234). Di bawah itu kolomnya menggulung mendatar, dan itu
+     disengaja: angka yang terpotong jadi "−17,5…" tidak ada gunanya, sementara angka
+     yang harus digulung masih bisa dibaca. */
   /* sel dipadatkan + min-width: tabel boleh scroll di dalam panel, tapi angka
      tidak boleh terpotong jadi elipsis */
-  #c-table{min-width:640px}
-  #c-table td{padding:.3rem .35rem}
-  #c-table th{padding:.45rem .35rem}
-  #col-trade table{min-width:630px}
+  /* Sel Live Trade dipadatkan seperti Watchlist. Padding .6rem × 2 sisi × 11 kolom
+     memakan ~70px — ruang yang lebih berguna dipakai angkanya sendiri daripada
+     jarak antar-kolom, dan tanpa itu tabel tidak muat utuh di layar 1536px. */
+  #col-trade td{padding:.35rem .4rem}
+  #col-trade th{padding:.5rem .4rem}
+  #c-table{min-width:791px}   /* = jumlah colgroup-nya */
+  #c-table td{padding:.3rem .3rem}
+  #c-table th{padding:.45rem .3rem}
+  #col-trade table{min-width:704px}   /* = jumlah colgroup-nya; di bawah ini menggulung, bukan memotong */
   .fp .fnum{color:var(--muted);width:52px;font-size:.72rem}
   .sym.clickable{cursor:pointer;text-decoration:underline dotted var(--line);
                  text-underline-offset:3px}
@@ -560,11 +573,16 @@
 
     <div class="colbody">
       <table>
+        <!-- Tabel ini `table-layout:fixed`, jadi INILAH yang menentukan lebar kolom —
+             `min-width` pada sel diabaikan sepenuhnya. Angkanya = kebutuhan isi
+             terpanjang yang mungkin: jam 10:14:42, nilai 1.488.154.500, badge burst 60×.
+             Jumlahnya 692px, sama dengan min-width tabelnya; di bawah itu kolom
+             menggulung mendatar, bukan memotong. -->
         <colgroup>
-          <col style="width:62px"><col style="width:56px"><col style="width:46px">
-          <col style="width:64px"><col style="width:46px"><col style="width:44px">
-          <col style="width:60px"><col style="width:90px"><col style="width:56px">
-          <col style="width:62px"><col style="width:44px">
+          <col style="width:74px"><col style="width:58px"><col style="width:54px">
+          <col style="width:66px"><col style="width:54px"><col style="width:48px">
+          <col style="width:64px"><col style="width:108px"><col style="width:58px">
+          <col style="width:68px"><col style="width:52px">
         </colgroup>
         <thead>
           <tr>
@@ -644,12 +662,16 @@
           <button id="c-aih" title="Riwayat analisa AI sebelumnya">Riwayat AI</button>
         </div>
         <table id="c-table">
+          <!-- Sama seperti tabel Live Trade: `table-layout:fixed`, jadi lebar kolom
+               ditentukan di sini dan `min-width` pada sel tidak berpengaruh. Angkanya =
+               kebutuhan isi terpanjang: AMMN, +15.09, −17.6 M, −10.3, 13.5×, 134.9 M,
+               imbang, 2.319. Jumlahnya 772px. -->
           <colgroup>
-            <col style="width:48px"><col style="width:52px"><col style="width:46px">
-            <col style="width:56px"><col style="width:44px"><col style="width:40px">
-            <col style="width:40px"><col style="width:24px"><col style="width:60px">
-            <col style="width:58px"><col style="width:58px">
-            <col style="width:44px"><col style="width:46px"><col style="width:40px">
+            <col style="width:55px"><col style="width:62px"><col style="width:60px">
+            <col style="width:68px"><col style="width:55px"><col style="width:52px">
+            <col style="width:52px"><col style="width:31px"><col style="width:68px">
+            <col style="width:68px"><col style="width:58px">
+            <col style="width:54px"><col style="width:58px"><col style="width:50px">
           </colgroup>
           <thead>
             <tr>
@@ -1465,8 +1487,13 @@ document.querySelectorAll('[data-win]').forEach((b) => {
 
 /** Rupiah ringkas — kolom kanan sempit, angka penuh tidak muat. */
 function rpShort(v) {
-  if (v >= 1e12) return (v / 1e12).toFixed(2) + ' T';
-  if (v >= 1e9) return (v / 1e9).toFixed(2) + ' M';
+  // Satu desimal begitu angkanya dua digit: "17,6 M" sama berguna dengan "17,57 M" untuk
+  // memindai, dan dua karakter lebih pendek. Di tabel Watchlist yang punya 14 kolom, dua
+  // karakter itu yang menentukan angkanya terpotong jadi "−17,5…" atau tidak — dan angka
+  // terpotong tidak ada gunanya sama sekali.
+  const p = (x) => (x >= 10 ? x.toFixed(1) : x.toFixed(2));
+  if (v >= 1e12) return p(v / 1e12) + ' T';
+  if (v >= 1e9) return p(v / 1e9) + ' M';
   if (v >= 1e6) return (v / 1e6).toFixed(0) + ' jt';
   return nf.format(Math.round(v));
 }
@@ -1548,7 +1575,7 @@ function renderCandidates() {
       <td class="num ${cls(r.chgPct)}">${signed(r.chgPct)}</td>
       <td class="num ${cls(r.delta)}">${fmtRp(r.delta)}</td>
       <td class="num ${hc}">${haka >= 0 ? haka : '—'}</td>
-      <td class="num ${zc}">${r.zVwap !== null ? signed(r.zVwap) : '—'}</td>
+      <td class="num ${zc}">${r.zVwap !== null ? signed(r.zVwap, Math.abs(r.zVwap) >= 10 ? 1 : 2) : '—'}</td>
       <td class="num ${tc}">${r.tape !== null ? r.tape.toFixed(1) + '×' : '—'}</td>
       <td class="num" title="${divTitle(r.divergence?.jenis ?? null)}">${divGlyph(r.divergence?.jenis ?? null)}</td>
       <td class="num">${rpShort(r.value)}</td>

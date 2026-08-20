@@ -340,6 +340,33 @@ pada 28% emiten, dan prinsip itu tidak berubah — hanya sumber datanya yang jad
 
 ## Watchlist (peringkat + tekanan, satu tabel)
 
+### Lebar kolom: ditentukan `<colgroup>`, bukan `min-width`
+
+Kedua tabel padat (Live Trade dan Watchlist) memakai `table-layout: fixed`. Akibatnya
+**`min-width` pada `td`/`th` diabaikan sepenuhnya** — yang menentukan lebar kolom hanya
+`<colgroup>`. Ini sempat memakan waktu: menambah `min-width` pada kolom yang terpotong
+tidak mengubah apa pun, dan `getComputedStyle` memang melaporkan `min-width: 0px`.
+
+Angka di `<colgroup>` bukan tebakan. Keduanya diukur dengan menyetel tabel ke
+`table-layout:auto; width:max-content` sambil mengisi tiap sel dengan **isi terpanjang
+yang mungkin** (AMMN, 1.488.154.500, −17,6 M, −10.3, 13.5×, imbang, 2.319), lalu membaca
+lebar tiap kolom. Hasilnya: Live Trade **704px**, Watchlist **791px** — dan itu yang
+dipakai sebagai `min-width` tabel masing-masing.
+
+Pembagian kolom mengikuti angka itu, bukan 50/50: `1fr : 1.12fr` saat filter diciutkan.
+Dengan begitu keduanya utuh mulai layar 1536px; di bawah itu kolomnya **menggulung
+mendatar, bukan memotong** — angka yang terpotong jadi `−17,5…` tidak ada gunanya,
+sementara angka yang harus digulung masih bisa dibaca.
+
+Ruangnya sebagian didapat tanpa mengurangi informasi:
+
+- padding sel Live Trade dipadatkan dari `.6rem` ke `.4rem` (~70px untuk 11 kolom)
+- `rpShort()` memakai satu desimal begitu angkanya dua digit: `17,6 M` bukan `17,57 M`
+- `zσ` memakai satu desimal di atas ±10
+
+Kalau nanti ada kolom baru atau isi yang lebih panjang, ulangi pengukurannya —
+menambah kolom tanpa memperbarui `<colgroup>` akan menyempitkan kolom lain diam-diam.
+
 > **Catatan istilah.** Kolom ini dulu berjudul "Kandidat" dan diganti jadi **Watchlist**
 > atas permintaan pengguna. Yang diganti hanya yang dibaca pengguna; di kode dan API
 > katanya tetap `candidates` (`buildCandidates`, `candidatesFor`, `/api/candidates`,
